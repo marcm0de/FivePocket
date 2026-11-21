@@ -20,7 +20,7 @@ import datetime
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import signal
 import subprocess
@@ -54,6 +54,8 @@ EDITION_ORDER = ('thor', 'fold', 'ios', 'duo')
 ANDROID_TWIN = {'thor': 'fold'}
 EDITION_DIRS = {'thor': 'Thor Edition', 'fold': 'Single screen', 'ios': 'iOS', 'duo': 'Duo'}
 APPLE_ELSEWHERE = 'built on a Mac with the macOS builder package'
+APP_NOT_FETCHED = 3            # builder app's exit when the app could not be fetched or checked (the bundle stands)
+THOR_WORD = 'thor-edition-'   # in a Thor-line profile's bundle name; the single-screen copy is named without it
 VERIFY_TARGET = '{bundle}'              # in a verify step's words: the bundle its edition's build step wrote
 STAGE_LINE = re.compile(r'^  ([a-z][a-z0-9-]{0,39})\s+(ran|skipped|FAILED|would run|NOT RUN|written)(?:\s|$)')
 BUNDLE_ID_LINE = re.compile(r'^Bundle identifier of your (\w+) app: (\S+)')
@@ -339,6 +341,7 @@ class Step:
     exit_code: int | None = None
     seconds: float | None = None
     result: dict | None = None       # a build step's output: path, size, seal or sha256, bundle_id
+    out_name: str = ''               # 1.2.0: the file name this edition's output is given (single screen from a Thor-line profile)
     last_lines: list = dataclasses.field(default_factory=list)
 
 
@@ -408,12 +411,41 @@ def make_plan(editions, discs: dict, out, cache, licences_accepted: bool, fetche
         base = dict(root=str(e.root), release=str(e.release_path), edition=e.ident, edition_label=e.label, edition_kind=e.kind)
         if e is same[0]:                                # one check per package and target
             steps.append(Step(f'check:{e.ident}', 'check', 'Check this computer', words=['check'] + target, **base))
-        steps.append(Step(f'build:{e.ident}', 'build', 'Build', stages=list(e.stages),
+        steps.append(Step(f'build:{e.ident}', 'build', 'Build', stages=list(e.stages), out_name=edition_file_name(e),
                           words=['build'] + target + ['--play-disc', str(discs['play']), '--install-disc', str(discs['install']),
                                                      '--out', str(where)], **base))
         if e.kind == 'bundle':
             steps.append(Step(f'verify:{e.ident}', 'verify', 'Verify the bundle', words=['verify', VERIFY_TARGET], **base))
+            app = app_pin(e)
+            if app:                                     # 1.2.0: the edition's APK beside its bundle (builder app)
+                steps.append(Step(f'app:{e.ident}', 'app', 'Get the app', out_name=PurePosixPath(app['member']).name,
+                                  words=['app', '--edition', e.key, '--out', str(where)], **base))
     return steps
+
+
+def app_pin(e) -> dict | None:
+    """the release's pin of this edition's app download (builder.apps_spec), or None"""
+    try:
+        apps = _read_json(e.release_path).get('apps') or {}
+    except (OSError, ValueError, TypeError):
+        return None
+    rec = apps.get(e.key) if isinstance(apps, dict) else None
+    return rec if isinstance(rec, dict) and rec.get('member') else None
+
+
+def edition_file_name(e) -> str:
+    """1.2.0 (owner: \"the builder is still building Thor APK for android\"): the single-screen edition of a Thor-line profile is
+    the same bundle (both apps pin one library and import any file name), named for its app: fivepocket-thor-edition-vN.bundle
+    -> fivepocket-vN.bundle. Every other edition keeps the profile's name ('')."""
+    if e.key != 'fold' or e.kind != 'bundle' or e.root is None:
+        return ''
+    try:
+        release = _read_json(e.release_path)
+        rel = B.profile_of(release, e.target) if e.target else release['profile']
+        name = str(_read_json(B.inside(e.root, rel)).get('bundle', {}).get('name', ''))
+    except (OSError, ValueError, KeyError, TypeError, B.Refusal):
+        return ''
+    return name.replace(THOR_WORD, '') if THOR_WORD in name and '${' not in name else ''
 
 
 def builder_words(step: Step, cache) -> list:
@@ -531,6 +563,9 @@ class Session:
             verify = next((v for v in self.steps if v.kind == 'verify' and v.edition == s.edition), None)
             made.append(dict(r, edition=s.edition_label, kind=s.edition_kind,
                              verified=None if verify is None else verify.state == 'done'))
+            app = next((a for a in self.steps if a.kind == 'app' and a.edition == s.edition and a.state == 'done' and a.result), None)
+            if app is not None:                         # the edition's APK, right after its bundle
+                made.append(dict(app.result, edition=s.edition_label, kind='apk', verified=None))
         return made
 
 
@@ -623,6 +658,11 @@ class Runner:
             if not self._run_step(step):
                 break
         ok = s.finished
+        if ok:                                          # the last line: each edition's files and what they are for
+            for o in s.outputs():
+                app = o['edition'].split(' (')[0]
+                what = ('missing: ' + o['missing']) if o.get('missing') else o['path']
+                self._log(f'{app}: ' + (f'the app to install, {what}' if o['kind'] == 'apk' else f'the bundle to import in the {app} app, {what}'))
         self.events(Event('done', data={'ok': ok, 'cancelled': self.cancelled}))
         return ok
 
@@ -673,10 +713,20 @@ class Runner:
         step.exit_code, step.seconds = code, round(time.monotonic() - started, 1)
         if self.cancelled:
             step.state = 'cancelled'
+        elif step.kind == 'app' and code == APP_NOT_FETCHED:
+            step.state = 'done'                        # the bundle stands; the player is told which file to download
+            advice = next((ln for ln in reversed(step.last_lines) if ln.startswith('APP NOT FETCHED')), 'The app was not fetched.')
+            step.result = {'path': str(self._app_path(step)), 'missing': advice.replace('APP NOT FETCHED: ', '')}
         elif code == 0:
             step.state = 'done'
+            if step.kind == 'app':
+                made = self._app_path(step)
+                step.result = {'path': str(made), 'size': made.stat().st_size, 'sha256': db.sha256_file(made)} if made.is_file() else \
+                    {'path': str(made), 'missing': 'The builder ended without writing the app.'}
             if step.kind == 'build':
                 step.result = self._build_result(step, started_wall, bundle_id)
+                if step.result is not None and step.out_name:
+                    step.result = self._named(step, step.result)
                 if step.result is None:
                     step.state = 'failed'
                     step.last_lines.append('The build ended without naming its output (no last-run.json written by this run).')
@@ -686,6 +736,19 @@ class Runner:
         self._log(f'=== {step.title}: {step.state} (exit {code}, {step.seconds} s) ===')
         self.events(Event('step-end', step.id, {'state': step.state, 'code': code}))
         return step.state == 'done'
+
+    @staticmethod
+    def _app_path(step: Step) -> Path:
+        return Path(step.words[step.words.index('--out') + 1]) / step.out_name
+
+    def _named(self, step: Step, result: dict) -> dict:
+        """the edition's own name for its output (the same bytes, in the build's own output folder)"""
+        made = Path(result['path'])
+        target = made.with_name(step.out_name)
+        if made != target and made.is_file():
+            os.replace(made, target)
+            self._log(f'Your package ({step.edition_label.split(" (")[0]}) is at {target}')
+        return dict(result, path=str(target))
 
     @staticmethod
     def _build_result(step: Step, started_wall: float, bundle_id) -> dict | None:

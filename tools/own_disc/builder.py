@@ -111,6 +111,7 @@ def load_release(path):
     if 'profile' not in r:
         raise Refusal('no production profile; obtain the approved B1/B2 profile')
     overlay_spec(r)
+    apps_spec(r)
     if r['host'] == 'win32-arm64' and 'compiler_overlay' not in r:
         raise Refusal(NO_NATIVE_COMPILER)
     if r['host'] == 'linux-arm64' and 'compiler_overlay' not in r:
@@ -573,6 +574,98 @@ def fetch_dxc(release, root, cache, accepted, archive=None, opener=None):
             out.write(data)
     existing_dxc(release, root)
     print(f'Shader compiler installed and verified: {len(missing)} of {len(taken)} files put below {root}')
+
+
+# 1.2.0 (owner: "outputs the correct apk and build file"): the edition's app from the release page. The release pins each
+# Android app's download (the zip on the GitHub release, its size and hash, and the APK inside it); builder app fetches it
+# once into the cache, checks both hashes, and puts the APK beside the bundle. Offline or changed: the bundle stands, and
+# the player is told plainly which file to download and from where.
+APP_HOSTS = ('https://github.com/', 'https://objects.githubusercontent.com/', 'https://release-assets.githubusercontent.com/')
+APP_URL = re.compile(r'https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/releases/download/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+\.zip')
+APP_PAGE = re.compile(r'https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/releases/tag/[A-Za-z0-9._-]+')
+APP_EDITIONS = ('thor', 'fold')
+APP_NOT_FETCHED = 3
+
+
+class AppNotFetched(Refusal):
+    """the app could not be fetched or is not the pinned file; the bundle is not affected"""
+
+
+class ReleasePageOnlyRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not newurl.startswith(APP_HOSTS):
+            raise AppNotFetched('the download left the release page\'s hosts')
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def apps_spec(release):
+    """{edition: pins} of the apps the release names (empty when it names none); a malformed pin refuses the release"""
+    a = release.get('apps')
+    if a is None:
+        return {}
+    if not isinstance(a, dict) or any(k not in APP_EDITIONS for k in a):
+        raise Refusal('the release names its apps wrongly; obtain a corrected release')
+    for rec in a.values():
+        ok = (isinstance(rec, dict) and APP_URL.fullmatch(str(rec.get('url', ''))) and APP_PAGE.fullmatch(str(rec.get('page', '')))
+              and all(re.fullmatch('[0-9a-f]{64}', str(rec.get(k))) for k in ('sha256', 'member_sha256'))
+              and all(type(rec.get(k)) is int and rec[k] > 0 for k in ('size', 'member_size')) and isinstance(rec.get('app'), str))
+        if not ok:
+            raise Refusal('an app pin is incomplete; obtain a corrected release')
+        safe_name(rec.get('member'))
+    return a
+
+
+def app_advice(rec):
+    return (f'Download {PurePosixPath(rec["url"]).name} from {rec["page"]}, unpack it and install '
+            f'{PurePosixPath(rec["member"]).name} (the {rec["app"]} app).')
+
+
+def fetch_app(release, cache, edition, out, archive=None, opener=None):
+    """the pinned APK of this edition into out (fetched once into cache/apps); returns its path"""
+    rec = apps_spec(release).get(edition)
+    if rec is None:
+        raise AppNotFetched(f'this release names no app for {edition}')
+    dest = Path(out) / PurePosixPath(rec['member']).name
+    if dest.is_file() and db.sha256_file(dest) == rec['member_sha256']:
+        print(f'Your app ({rec["app"]}) is at {dest} (already there)')
+        return dest
+    checkout_refusal.private_output(cache, 'cache folder')
+    stored = Path(cache) / 'apps' / (rec['sha256'] + '.zip')
+    if not (stored.is_file() and stored.stat().st_size == rec['size'] and db.sha256_file(stored) == rec['sha256']):
+        stored.parent.mkdir(parents=True, exist_ok=True)
+        part = stored.with_name(stored.name + '.part')
+        print(f'App: {rec["url"]}; {rec["size"]} bytes; SHA-256 {rec["sha256"][:12]}')
+        try:
+            stream = open(archive, 'rb') if archive else (opener or urllib.request.build_opener(ReleasePageOnlyRedirect()).open)(rec['url'], timeout=60)
+            h, total = hashlib.sha256(), 0
+            with stream, part.open('wb') as f:
+                while block := stream.read(1 << 20):
+                    total += len(block)
+                    if total > rec['size']:
+                        raise AppNotFetched('the download is larger than the pinned app')
+                    h.update(block); f.write(block)
+        except AppNotFetched:
+            part.unlink(missing_ok=True); raise
+        except OSError as error:
+            part.unlink(missing_ok=True)
+            raise AppNotFetched(f'could not download it ({error})')
+        if total != rec['size'] or h.hexdigest() != rec['sha256']:
+            part.unlink(missing_ok=True)
+            raise AppNotFetched('the download is not the pinned file (size or SHA-256 differ); nothing was kept')
+        os.replace(part, stored)
+    with zipfile.ZipFile(stored) as z:
+        try:
+            data = z.read(rec['member'])
+        except KeyError:
+            raise AppNotFetched(f'the download lacks {rec["member"]}')
+    if len(data) != rec['member_size'] or hashlib.sha256(data).hexdigest() != rec['member_sha256']:
+        raise AppNotFetched(f'{rec["member"]} is not the pinned APK; nothing was written')
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_name(dest.name + '.part')
+    tmp.write_bytes(data)
+    os.replace(tmp, dest)
+    print(f'Your app ({rec["app"]}) is at {dest}')
+    return dest
 
 
 WINDOWS_PATH_LIMIT = 80
@@ -1062,6 +1155,8 @@ def main(argv=None):
     target.add_argument('--fold', dest='target', action='store_const', const='fold')
     b.add_argument('--bundle-id')
     v = sub.add_parser('verify'); v.add_argument('bundle', type=Path); v.add_argument('--executable-sha256')
+    p = sub.add_parser('app'); p.add_argument('--edition', required=True, choices=APP_EDITIONS)
+    p.add_argument('--out', type=Path, required=True); p.add_argument('--archive', type=Path)
     s = sub.add_parser('sign'); s.add_argument('--ipa', type=Path, required=True); s.add_argument('--identity', required=True)
     s.add_argument('--profile-file', type=Path); s.add_argument('--entitlements', type=Path); s.add_argument('--out', type=Path, required=True)
     a = ap.parse_args(argv)
@@ -1071,6 +1166,14 @@ def main(argv=None):
         if a.cmd == 'sign':
             return sign_ipa(a.ipa, a.identity, a.profile_file, a.entitlements, a.out)
         release, root = load_release(a.release)
+        if a.cmd == 'app':
+            try:
+                fetch_app(release, a.cache.resolve(), a.edition, a.out, a.archive)
+                return 0
+            except AppNotFetched as error:
+                rec = apps_spec(release).get(a.edition)
+                print(f'APP NOT FETCHED: {error}. The bundle is not affected. ' + (app_advice(rec) if rec else ''))
+                return APP_NOT_FETCHED
         if a.cmd == 'fetch':
             check_paths(a.cache, a.cache)
             fetch(release, a.cache.resolve(), a.accept_ndk_license, a.archive)

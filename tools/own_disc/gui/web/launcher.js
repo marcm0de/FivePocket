@@ -311,18 +311,23 @@ function renderResults() {
   const outs = state.outputs, rows = $('rows');
   $('log').hidden = true;
   rows.replaceChildren();
-  renderSections('Results', outs.map((o, i) => ({ id: i, label: o.edition })), section.results, (i) => { section.results = i; render(); });
+  renderSections('Results', outs.map((o, i) => ({ id: i, label: o.kind === 'apk' ? o.edition + ' app' : o.edition })), section.results, (i) => { section.results = i; render(); });
   if (!outs.length) { rows.append(row('Nothing built yet', 'The finished files and their hashes appear here.', [], 'short')); return; }
   const i = Math.min(section.results, outs.length - 1), o = outs[i];
   rows.append(row(o.name, [mono(o.path)], [pill('Open folder', () => act('open', { what: 'output', index: i }))]));
-  rows.append(row('Size', o.size_text));
-  rows.append(row('SHA-256', [mono(o.sha256 || '')], [pill('Copy', () => act('copy_hashes'))]));
+  if (o.missing) rows.append(row('Not downloaded', desc(o.missing, 'warn')));
+  else {
+    rows.append(row('Size', o.size_text));
+    rows.append(row('SHA-256', [mono(o.sha256 || '')], [pill('Copy', () => act('copy_hashes'))]));
+  }
   if (o.seal) rows.append(row('Bundle seal', [mono(o.seal), desc('The FivePocket app shows the same seal when it imports the bundle.')]));
   if (o.verified != null) rows.append(row('Verify', desc(o.verified ? 'Verified by the builder’s verify step' : 'Not verified', o.verified ? 'ok' : 'bad')));
   if (o.bundle_id) rows.append(row('Bundle identifier', [mono(o.bundle_id), desc('Always sign with this identifier: another one makes a new app with empty storage.', 'warn')]));
-  rows.append(row('Next', o.kind === 'bundle'
-    ? 'Install this edition’s FivePocket app (the APK from the release page), copy the bundle to the phone and import it in the app.'
-    : 'Sign the .ipa with your own Apple ID (see the README) and install it.'));
+  rows.append(row('Next', o.kind === 'apk'
+    ? 'Install this APK on the phone: it is the FivePocket ' + o.edition + ' app. Then import the bundle beside it in that app.'
+    : o.kind === 'bundle'
+      ? 'Copy this bundle to the phone and import it in the FivePocket ' + o.edition + ' app (the APK beside it).'
+      : 'Sign the .ipa with your own Apple ID (see the README) and install it.'));
 }
 
 // SETTINGS: General (backdrop, output folder, log), Compilers, Builder packages, About

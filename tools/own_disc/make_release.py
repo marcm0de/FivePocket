@@ -9,7 +9,8 @@ writes that inventory for a finished package folder and reads it back the way th
     make_release.py --package DIR --host HOST --profile REL [--python REL]
                     --ndk-url URL --ndk-sha256 HEX --ndk-size N --ndk-directory NAME --ndk-unpacked-bytes N
                     [--ndk-image-root PATH]
-                    --min-free-bytes N [--build-time TEXT] [--dxc PINS.json] [--compiler-overlay LIST.json] [--output FILE]
+                    --min-free-bytes N [--build-time TEXT] [--dxc PINS.json] [--compiler-overlay LIST.json] [--apps PINS.json]
+                    [--output FILE]
                     [--target ios=REL] [--target duo=REL] [--target thor=REL] [--target fold=REL]
 
 Every regular file below DIR is listed (name with forward slashes, SHA-256, whether it is a program), except
@@ -124,7 +125,7 @@ def native_compiler(package: Path, overlay: list, release: dict) -> dict:
 
 
 def make(package: Path, host: str, profile: str, python: str, ndk: dict, min_free_bytes: int, build_time: str | None, output: Path, dxc: dict | None = None,
-         targets: dict | None = None, compiler_overlay: list | None = None) -> dict:
+         targets: dict | None = None, compiler_overlay: list | None = None, apps: dict | None = None) -> dict:
     package = package.resolve()
     output = output.resolve()
     if not package.is_dir():
@@ -155,6 +156,9 @@ def make(package: Path, host: str, profile: str, python: str, ndk: dict, min_fre
         release['dxc'] = fetched_compiler(dxc, listed)
     if compiler_overlay is not None:
         release['compiler_overlay'] = native_compiler(package, compiler_overlay, release)
+    if apps is not None:          # 1.2.0: the Android apps' release-page downloads, fetched by builder app (builder.apps_spec)
+        builder.apps_spec({'apps': apps})
+        release['apps'] = apps
     elif host == 'win32-arm64':
         raise ValueError('a Windows on ARM release needs its native compiler programs (--compiler-overlay): the NDK\'s x64 ones run emulated there')
     with output.open('x', encoding='utf-8', newline='\n') as stream:
@@ -184,6 +188,7 @@ def main(argv=None) -> int:
     ap.add_argument('--build-time')
     ap.add_argument('--dxc', type=Path)
     ap.add_argument('--compiler-overlay', type=Path)
+    ap.add_argument('--apps', type=Path)
     ap.add_argument('--output', type=Path)
     ap.add_argument('--target', action='append', default=[], metavar='NAME=REL')
     a = ap.parse_args(argv)
@@ -199,7 +204,7 @@ def main(argv=None) -> int:
         targets = dict(item.split('=', 1) for item in a.target)
         overlay = json.loads(a.compiler_overlay.read_text(encoding='utf-8')) if a.compiler_overlay else None
         release = make(a.package, a.host, a.profile, a.python, ndk, a.min_free_bytes, a.build_time, a.output or a.package / 'release.json', dxc,
-                       targets, overlay)
+                       targets, overlay, json.loads(a.apps.read_text(encoding='utf-8')) if a.apps else None)
     except (ValueError, OSError) as error:
         print('RELEASE_REFUSED:', error, file=sys.stderr)
         return 2
@@ -207,6 +212,8 @@ def main(argv=None) -> int:
     fetched = f", {len(release['dxc']['files'])} shader compiler files fetched by the builder" if 'dxc' in release else ''
     if 'compiler_overlay' in release:
         fetched += f", {len(release['compiler_overlay']['files'])} native compiler programs over the NDK"
+    if 'apps' in release:
+        fetched += f", apps pinned for {', '.join(sorted(release['apps']))}"
     print('RELEASE', len(release['files']), 'files,', programs, 'programs, host', release['host'] + fetched, flush=True)
     return 0
 
