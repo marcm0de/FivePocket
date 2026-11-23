@@ -91,7 +91,7 @@ function renderHomeSide() {
   for (const e of state.editions) {
     if (!e.shown) continue;
     const st = e.available ? (e.chosen ? 'on' : 'off') : 'na';
-    const sub = (e.available ? (e.chosen ? 'Will be built' : 'Not built') : 'Not on this computer') + (twice(e) ? ' · ' + e.package : '');
+    const sub = (e.available ? (e.chosen ? 'Will be built' : 'Not built') : (e.reason ? 'Made ' + e.reason : 'Not on this computer')) + (twice(e) ? ' · ' + e.package : '');
     eds.append(item(e.ident, e.key, st, e.short + (twice(e) ? ` (${e.package})` : ''), sub, y));
     y += 50;
   }
@@ -404,7 +404,7 @@ function renderBuildDialog() {
   opts.replaceChildren();
   for (const e of state.editions.filter((x) => x.shown)) {
     const o = el('div', { class: 'option' + (e.available ? (e.chosen ? ' on' : '') : ' na') },
-      el('div', {}, document.createTextNode(e.short), el('small', { text: e.available ? (e.kind === 'bundle' ? 'Code bundle for the Android app' : 'Unsigned iOS app') : 'Not on this computer' })),
+      el('div', {}, document.createTextNode(e.short), el('small', { text: e.available ? (e.kind === 'bundle' ? 'Code bundle for the Android app' : 'Unsigned iOS app') : (e.reason ? 'Made ' + e.reason : 'Not on this computer') })),
       box(e.chosen && e.available, () => act('toggle_edition', { ident: e.ident }), e.available));
     opts.append(o);
   }

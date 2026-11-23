@@ -96,13 +96,19 @@ class Synthetic(unittest.TestCase):
 
 
 class Editions(Synthetic):
-    def test_a_windows_package_offers_both_android_editions_and_says_where_the_apple_ones_are_made(self):
-        # owner 1.2.0: the Thor-line bundle is the one both Android apps import, so its package offers both editions
-        fx, release = self.package(profile_id='fivepocket-thor-edition-v852-3')
+    def test_a_package_builds_its_own_edition_and_lists_the_others_with_where_they_are_made(self):
+        # owner 1.2.1: each Android edition builds its own code from its own download; every window lists all four editions
+        for name, profile_id, own, other in (('thor', 'fivepocket-thor-edition-v852-3', 'thor', 'fold'), ('fold', 'fivepocket-v1944-3', 'fold', 'thor')):
+            with self.subTest(own):
+                fx, release = self.package(name, profile_id=profile_id)
+                found = core.discover_editions([fx.side])
+                self.assertEqual([(e.key, e.kind, e.target) for e in found if e.available], [(own, 'bundle', None)])
+                greyed = [e for e in found if e.key == other]
+                self.assertEqual([(e.kind, e.available, e.root) for e in greyed], [('bundle', False, None)])
+                self.assertIn('in its own download', greyed[0].reason)
+                self.assertEqual(sorted(e.key for e in found), ['duo', 'fold', 'ios', 'thor'])
+        fx, release = self.package('apple-check', profile_id='fivepocket-thor-edition-v852-3')
         found = core.discover_editions([fx.side])
-        ready = [e for e in found if e.available]
-        self.assertEqual([(e.key, e.kind, e.target) for e in ready], [('thor', 'bundle', None), ('fold', 'bundle', None)])
-        self.assertIn('Thor Edition', ready[0].label)
         ios = [e for e in found if e.kind == 'ipa']
         self.assertTrue(ios and not any(e.available for e in ios), found)       # never offered as buildable here
         self.assertEqual(sorted(e.key for e in ios), ['duo', 'ios'])
@@ -148,7 +154,8 @@ class Editions(Synthetic):
         shutil.move(str(a.side), parent / 'FivePocket-Builder-Windows-Thor-Edition')
         shutil.move(str(b.side), parent / 'FivePocket-Builder-Windows-Single-Screen')
         ready = [e for e in core.discover_editions([parent]) if e.available]
-        self.assertEqual(sorted(e.key for e in ready), ['fold', 'fold', 'thor'])     # the Thor package offers single screen too
+        self.assertEqual(sorted(e.key for e in ready), ['fold', 'thor'])             # each package its own edition: both build
+        self.assertFalse([e for e in core.discover_editions([parent]) if e.kind == 'bundle' and not e.available])
 
 
 class Discs(Synthetic):

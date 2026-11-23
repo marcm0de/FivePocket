@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import shutil
 from pathlib import Path
 import sys
 import threading
@@ -51,7 +52,9 @@ class Window(t.Synthetic):
         s = wait(app, lambda s: s['compilers'] != 'checking')
         self.assertFalse(s['primary']['enabled'])
         self.assertIn('Disc 2 (Play)', s['ready_problems'][0])
-        self.assertEqual([e['short'] for e in s['editions'] if e['shown'] and e['available']], ['FivePocket Thor Edition', 'FivePocket single screen'])
+        self.assertEqual([e['short'] for e in s['editions'] if e['shown'] and e['available']], ['FivePocket Thor Edition'])
+        self.assertEqual([e['short'] for e in s['editions'] if e['shown'] and not e['available']],
+                         ['FivePocket single screen', 'FivePocket iOS', 'FivePocket Duo'])           # 1.2.1: listed, greyed
         self.assertEqual([e['short'] for e in s['editions'] if e['chosen']], ['FivePocket Thor Edition'])
         self.answers = [str(self.fx.disc)]
         app.act('choose_disc', {'slot': 'play'})
@@ -147,6 +150,20 @@ class Window(t.Synthetic):
         self.assertEqual(self.app().snapshot()['backdrop'], 'la-sunset')         # a new window remembers it
         app.act('set_backdrop', {'id': '../../etc'})
         self.assertEqual(app.snapshot()['backdrop'], 'la-sunset')
+
+    def test_a_window_opens_on_its_own_packages_edition_beside_another_package(self):
+        fold, _ = self.package('single', profile_id='fivepocket-v1944-3')
+        thor, _ = self.package('thor2', profile_id='fivepocket-thor-edition-v852-3')
+        parent = self.root / 'unpacked'                                            # two downloads unpacked side by side
+        parent.mkdir()
+        roots = {'fold': parent / 'FivePocket-Builder-Windows-Single-Screen', 'thor': parent / 'FivePocket-Builder-Windows-Thor-Edition'}
+        shutil.move(str(fold.side), roots['fold'])
+        shutil.move(str(thor.side), roots['thor'])
+        for own, root in roots.items():
+            with self.subTest(own):
+                s = web_app.AppState([], gui_root=root, backdrop_dirs=[self.root / 'bd']).snapshot()
+                self.assertEqual(sorted(e['key'] for e in s['editions'] if e['available']), ['fold', 'thor'])   # both build
+                self.assertEqual([e['key'] for e in s['editions'] if e['chosen']], [own])
 
     def test_only_the_window_with_its_token_is_answered(self):
         app = self.app()

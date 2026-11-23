@@ -184,8 +184,9 @@ class AppState:
         self.editions = core.discover_editions(self.package_paths)
         self.games = core.games_of([e for e in self.editions if e.available])
         self.chosen = {e.ident: e.available for e in self.editions}
-        if sum(self.chosen.values()) > 1:
-            first = next(e for e in self.editions if e.available)
+        if sum(self.chosen.values()) > 1:          # 1.2.1: a window opens on its own package's edition, also beside another package
+            own = [e for e in self.editions if e.available and e.root and Path(e.root).resolve() == root.resolve()]
+            first = own[0] if own else next(e for e in self.editions if e.available)
             self.chosen = {k: k == first.ident for k in self.chosen}
         self.discs = {'play': None, 'install': None}
         self.reports = {'play': None, 'install': None}

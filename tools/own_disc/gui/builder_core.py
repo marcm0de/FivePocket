@@ -49,13 +49,12 @@ EDITION_LABELS = {
     'duo': 'FivePocket Duo (iPad, two screens)',
 }
 EDITION_ORDER = ('thor', 'fold', 'ios', 'duo')
-# 1.2.0: a Thor-line profile makes the one bundle both Android apps import, so its package offers both Android editions; when
-# both are chosen the build runs once (the second from the first's receipts) and each gets its copy in its own folder
-ANDROID_TWIN = {'thor': 'fold'}
+# 1.2.1 (owner): each Android edition builds its own code from its own download; a window lists every edition, the ones no package
+# beside it makes greyed with where they are made (two downloads unpacked side by side build both)
+ANDROID_ELSEWHERE = 'in its own download (the FivePocket builder of that edition)'
 EDITION_DIRS = {'thor': 'Thor Edition', 'fold': 'Single screen', 'ios': 'iOS', 'duo': 'Duo'}
-APPLE_ELSEWHERE = 'built on a Mac with the macOS builder package'
+APPLE_ELSEWHERE = 'on a Mac, with the macOS builder'
 APP_NOT_FETCHED = 3            # builder app's exit when the app could not be fetched or checked (the bundle stands)
-THOR_WORD = 'thor-edition-'   # in a Thor-line profile's bundle name; the single-screen copy is named without it
 VERIFY_TARGET = '{bundle}'              # in a verify step's words: the bundle its edition's build step wrote
 STAGE_LINE = re.compile(r'^  ([a-z][a-z0-9-]{0,39})\s+(ran|skipped|FAILED|would run|NOT RUN|written)(?:\s|$)')
 BUNDLE_ID_LINE = re.compile(r'^Bundle identifier of your (\w+) app: (\S+)')
@@ -157,14 +156,15 @@ def discover_editions(paths) -> list:
             pid, _, _ = _profile_facts(root, default) if default else ('', (), [])
             key = _key_of_profile(pid, default)
             entries.append((key, None, default))
-            if key in ANDROID_TWIN:
-                entries.append((ANDROID_TWIN[key], None, default))
             preferred[str(root)] = _package_edition(root) or key
             entries += [(t, t, rel) for t, rel in profiles.items() if rel != default]
         for key, target, rel in entries:
             _, stages, _ = _profile_facts(root, rel)
             kind = 'ipa' if key in B.APP_TARGETS else 'bundle'
             editions.append(Edition(key, EDITION_LABELS.get(key, key), kind, root, release_path, target, not reason, reason, stages))
+    for key in ('thor', 'fold'):                    # the Android editions: listed, greyed, where no package here makes them
+        if not any(e.key == key and e.kind == 'bundle' for e in editions):
+            editions.append(Edition(key, EDITION_LABELS[key], 'bundle', None, None, None, False, ANDROID_ELSEWHERE))
     for key in ('ios', 'duo'):                      # the Apple editions: listed, greyed, where no package here makes them
         if not any(e.key == key and e.kind == 'ipa' and e.available for e in editions):
             editions.append(Edition(key, EDITION_LABELS[key], 'ipa', None, None, None, False, APPLE_ELSEWHERE))
@@ -401,17 +401,16 @@ def make_plan(editions, discs: dict, out, cache, licences_accepted: bool, fetche
             release = _read_json(e.release_path)
             words = ['fetch', '--accept-ndk-license'] + (['--accept-dxc-license'] if release.get('dxc') else [])
             steps.append(Step(f'fetch:{len(steps)}', 'fetch', 'Fetch the compilers', str(e.root), key, words))
-    twins = {}
-    for e in editions:
-        twins.setdefault((str(e.release_path), e.target), []).append(e)
+    checked = set()
+    several = sum(e.kind == 'bundle' for e in editions) > 1    # each Android edition's bundle and APK in its own folder
     for e in editions:
         target = ['--' + e.target] if e.target else []
-        same = twins[(str(e.release_path), e.target)]
-        where = Path(out) / EDITION_DIRS.get(e.key, e.key) if len(same) > 1 else Path(out)
+        where = Path(out) / EDITION_DIRS.get(e.key, e.key) if several and e.kind == 'bundle' else Path(out)
         base = dict(root=str(e.root), release=str(e.release_path), edition=e.ident, edition_label=e.label, edition_kind=e.kind)
-        if e is same[0]:                                # one check per package and target
+        if (str(e.release_path), e.target) not in checked:           # one check per package and target
+            checked.add((str(e.release_path), e.target))
             steps.append(Step(f'check:{e.ident}', 'check', 'Check this computer', words=['check'] + target, **base))
-        steps.append(Step(f'build:{e.ident}', 'build', 'Build', stages=list(e.stages), out_name=edition_file_name(e),
+        steps.append(Step(f'build:{e.ident}', 'build', 'Build', stages=list(e.stages),
                           words=['build'] + target + ['--play-disc', str(discs['play']), '--install-disc', str(discs['install']),
                                                      '--out', str(where)], **base))
         if e.kind == 'bundle':
@@ -431,21 +430,6 @@ def app_pin(e) -> dict | None:
         return None
     rec = apps.get(e.key) if isinstance(apps, dict) else None
     return rec if isinstance(rec, dict) and rec.get('member') else None
-
-
-def edition_file_name(e) -> str:
-    """1.2.0 (owner: \"the builder is still building Thor APK for android\"): the single-screen edition of a Thor-line profile is
-    the same bundle (both apps pin one library and import any file name), named for its app: fivepocket-thor-edition-vN.bundle
-    -> fivepocket-vN.bundle. Every other edition keeps the profile's name ('')."""
-    if e.key != 'fold' or e.kind != 'bundle' or e.root is None:
-        return ''
-    try:
-        release = _read_json(e.release_path)
-        rel = B.profile_of(release, e.target) if e.target else release['profile']
-        name = str(_read_json(B.inside(e.root, rel)).get('bundle', {}).get('name', ''))
-    except (OSError, ValueError, KeyError, TypeError, B.Refusal):
-        return ''
-    return name.replace(THOR_WORD, '') if THOR_WORD in name and '${' not in name else ''
 
 
 def builder_words(step: Step, cache) -> list:
