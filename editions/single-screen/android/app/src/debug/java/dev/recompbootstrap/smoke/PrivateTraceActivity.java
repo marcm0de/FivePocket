@@ -293,7 +293,8 @@ public final class PrivateTraceActivity extends Activity {
             if(gameRequested)content.setOnTouchListener(QolTouch.open(getFilesDir()));
             final View touchPad=gameRequested?QolTouch.overlay(this):null; // touch-controls: the drawn on-screen pad (takes no touches itself)
             if(touchPad!=null)content.addView(touchPad,new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.MATCH_PARENT));
-            // (1.2.0, owner: "remove that ... fps counter": no frame-rate label)
+            if(gameRequested)content.addView(new FpsLabelView(this,()->fillNow),new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT)); // v714: the frame-rate label (the owner: "minimalistic and much smaller"; 1.2.1: restored, "I like the old minimalist fps counter")
             if(gameRequested)setupSideMenu(content,surface); // side-menu (SPEC 5): over the pad
             ((ViewGroup)status.getParent()).removeView(status);
             status.setTextSize(11);status.setPadding(12,6,12,6);status.setBackgroundColor(0x99000000);

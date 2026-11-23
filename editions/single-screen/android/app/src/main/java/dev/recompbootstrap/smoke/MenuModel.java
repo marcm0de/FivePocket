@@ -21,7 +21,10 @@ import java.util.TimeZone;
  */
 final class MenuModel {
     static final int ACTION_NONE = 0, ACTION_SAVE = 1, ACTION_LEAVE = 2;
-    static final int OVERLAY_NONE = 0, OVERLAY_RESTORE = 1, OVERLAY_SAVE_QUESTION = 2, OVERLAY_DRIFT_LIST = 3;
+    /** 1.2.1 (owner): the save export / import rows and the import's question; the screen does the work (SaveArchive). */
+    static final int ACTION_EXPORT_SAVES = 3, ACTION_IMPORT_SAVES = 4, ACTION_IMPORT_CONFIRMED = 5;
+    static final int OVERLAY_NONE = 0, OVERLAY_RESTORE = 1, OVERLAY_SAVE_QUESTION = 2, OVERLAY_DRIFT_LIST = 3, OVERLAY_IMPORT_SAVES = 4;
+    static final String TEXT_EXPORT_SAVES = "Export saves", TEXT_IMPORT_SAVES = "Import saves";
     static final int KIND_BANNER = 0, KIND_CHOICE = 1, KIND_SLIDER = 2, KIND_TOGGLE = 3, KIND_ACTION = 4;
     static final int TONE_NORMAL = 0, TONE_WARNING = 1, TONE_ERROR = 2, TONE_DISABLED = 3, TONE_GOOD = 4;
     static final int PHASE_LOADING = 0, PHASE_READY = 1, PHASE_FAILED = 2;
@@ -48,11 +51,13 @@ final class MenuModel {
     static final String TEXT_NO_FILE = "No saved settings yet: this shows what the game's setting files say. "
             + "Nothing is written until you choose Save.";
 
-    private static final int ROW_RESTORE = 1, ROW_SAVE = 2;
+    private static final int ROW_RESTORE = 1, ROW_SAVE = 2, ROW_EXPORT_SAVES = 3, ROW_IMPORT_SAVES = 4;
     private static final String GROUP_WORLD = "World";
     private static final String[] RESTORE_BUTTONS = {"Restore", "Cancel"};
     private static final String[] SAVE_BUTTONS = {"Save", "Discard", "Keep editing"};
     private static final String[] DRIFT_BUTTONS = {"Close"};
+    private static final String[] IMPORT_BUTTONS = {"Replace my saves", "Cancel"};
+    private String importDetail;
     private static final String[] BANNER_BUTTONS = {"Apply again", "Show"};
 
     private static final class Entry {
@@ -112,7 +117,6 @@ final class MenuModel {
         String title = null;
         for (SettingSpec spec : SettingsSchema.all()) {
             if (MyMusicSettings.hiddenRow(spec.key)) continue;   // (Update 1: My Music waits for E-SR1)
-            if (SettingsSchema.FPS_OVERLAY.equals(spec.key)) continue;   // (1.2.0, owner: no frame-rate counter row)
             if (!spec.group.equals(title)) {
                 group++;
                 title = spec.group;
@@ -123,6 +127,8 @@ final class MenuModel {
         }
         rows.add(new Entry(KIND_ACTION, null, ROW_RESTORE, group + 1, ""));
         rows.add(new Entry(KIND_ACTION, null, ROW_SAVE, group + 1, ""));
+        rows.add(new Entry(KIND_ACTION, null, ROW_EXPORT_SAVES, group + 1, ""));
+        rows.add(new Entry(KIND_ACTION, null, ROW_IMPORT_SAVES, group + 1, ""));
         phase = PHASE_READY;
         bannerButton = BANNER_SHOW;
         // The banner can be reached with UP, but it is never where the focus starts: its buttons act on files.
@@ -288,6 +294,8 @@ final class MenuModel {
             else open(OVERLAY_DRIFT_LIST, 0);
         } else if (row.kind == KIND_ACTION) {
             if (row.action == ROW_RESTORE) open(OVERLAY_RESTORE, 1);
+            else if (row.action == ROW_EXPORT_SAVES) pending = ACTION_EXPORT_SAVES;
+            else if (row.action == ROW_IMPORT_SAVES) pending = ACTION_IMPORT_SAVES;
             else requestSave(working, false);
         } else if (row.kind != KIND_SLIDER && rowEnabled(focus)) {
             // (A disabled row is inert here too: the Scaler row at Native has other values, and keeps the saved one.)
@@ -336,8 +344,29 @@ final class MenuModel {
                 requestSave(working, true);
             } else if (which == OVERLAY_SAVE_QUESTION && button == 1) {
                 pending = ACTION_LEAVE;   // Discard: nothing is written
+            } else if (which == OVERLAY_IMPORT_SAVES && button == 0) {
+                pending = ACTION_IMPORT_CONFIRMED;   // Replace my saves (the current ones are kept in the app first)
             }
         }
+    }
+
+    // ------------------------------------------------------------------------------------------ save export / import (1.2.1)
+
+    /** The screen has taken a save export / import action (it opens the picker or does the work). */
+    void actionTaken() {
+        if (pending == ACTION_EXPORT_SAVES || pending == ACTION_IMPORT_SAVES || pending == ACTION_IMPORT_CONFIRMED) pending = ACTION_NONE;
+    }
+
+    /** A save export was read and checked: ask before it replaces anything. detail: what it holds (SaveArchive.summary). Cancel first. */
+    void askImportSaves(String detail) {
+        importDetail = detail;
+        open(OVERLAY_IMPORT_SAVES, IMPORT_BUTTONS.length - 1);
+    }
+
+    /** A line of the screen's own work in the footer status; stays until the next command or note. */
+    void note(String text) {
+        status = text;
+        statusTone = TONE_NORMAL;
     }
 
     // ------------------------------------------------------------------------------------------ saving
@@ -447,7 +476,8 @@ final class MenuModel {
             return "The game's setting files differ from your saved settings (" + drift.size()
                     + (drift.size() == 1 ? " file" : " files") + ").";
         }
-        if (row.kind == KIND_ACTION) return row.action == ROW_RESTORE ? TEXT_RESTORE : TEXT_SAVE;
+        if (row.kind == KIND_ACTION) return row.action == ROW_RESTORE ? TEXT_RESTORE : row.action == ROW_EXPORT_SAVES ? TEXT_EXPORT_SAVES
+                : row.action == ROW_IMPORT_SAVES ? TEXT_IMPORT_SAVES : TEXT_SAVE;
         return row.spec.label;
     }
 
@@ -653,18 +683,20 @@ final class MenuModel {
 
     private String[] overlayButtons() {
         return overlay == OVERLAY_RESTORE ? RESTORE_BUTTONS : overlay == OVERLAY_SAVE_QUESTION ? SAVE_BUTTONS
-                : overlay == OVERLAY_DRIFT_LIST ? DRIFT_BUTTONS : new String[0];
+                : overlay == OVERLAY_DRIFT_LIST ? DRIFT_BUTTONS : overlay == OVERLAY_IMPORT_SAVES ? IMPORT_BUTTONS : new String[0];
     }
 
     String overlayTitle() {
         return overlay == OVERLAY_RESTORE ? "Put every setting back to the original?"
                 : overlay == OVERLAY_SAVE_QUESTION ? "Save changes?"
-                : overlay == OVERLAY_DRIFT_LIST ? "Setting files that differ from your saved settings" : null;
+                : overlay == OVERLAY_DRIFT_LIST ? "Setting files that differ from your saved settings"
+                : overlay == OVERLAY_IMPORT_SAVES ? "Replace your saves with these?" : null;
     }
 
     /** The text under the question's title, or null. For the file list: one file name per line. */
     String overlayDetail() {
         if (overlay == OVERLAY_RESTORE) return "Then choose Save.";
+        if (overlay == OVERLAY_IMPORT_SAVES) return importDetail;
         if (overlay != OVERLAY_DRIFT_LIST) return null;
         StringBuilder names = new StringBuilder();
         for (String name : drift) names.append(names.length() == 0 ? "" : "\n").append(name);
@@ -694,7 +726,7 @@ final class MenuModel {
     String legend() {
         if (phase != PHASE_READY) return "B Back";
         if (overlay == OVERLAY_DRIFT_LIST) return "A Close   B Close   Up/Down Scroll";
-        if (overlay == OVERLAY_RESTORE) return "A Select   B Cancel   Left/Right Move";
+        if (overlay == OVERLAY_RESTORE || overlay == OVERLAY_IMPORT_SAVES) return "A Select   B Cancel   Left/Right Move";
         if (overlay == OVERLAY_SAVE_QUESTION) return "A Select   B Keep editing   Left/Right Move";
         if (!rowEnabled(focus)) return "Not available (see the line under the row)   B Back   L1/R1 Group   Y Restore original   Start Save";
         return "A Select   B Back   Left/Right Change   L1/R1 Group   Y Restore original   Start Save";

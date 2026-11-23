@@ -61,7 +61,7 @@ final class ShipLog {
      * the counter is off by default (ShipFirstRun.counterOffUnlessSaved). Written only when a file was removed.
      */
     static String counterOff() {
-        return "COUNTER_OFF removed=" + ShipFirstRun.COUNTER_SWITCH + " why=no-frame-rate-counter";   // (1.2.0, owner: removed at every start)
+        return "COUNTER_OFF removed=" + ShipFirstRun.COUNTER_SWITCH + " why=settings-never-saved";   // (1.2.1: as 1.1.5)
     }
 
     /** A killed copy of game data had left half files in the app's storage; they were removed. */

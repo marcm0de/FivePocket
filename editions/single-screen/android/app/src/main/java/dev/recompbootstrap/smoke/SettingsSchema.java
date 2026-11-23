@@ -44,7 +44,10 @@ final class SettingsSchema {
             SCREEN_FILL = "screenFill",
             // Update 1 haptics (P2): the game's rumble on the device's motor and the on-screen buttons' tick; settings/haptics.txt, read
             // by the app's game window (Haptics); values RumbleMapper.OFF / LIGHT / FULL.
-            HAPTICS = "haptics";
+            HAPTICS = "haptics",
+            // 1.2.1 (owner 2026-11-22: the game's language): one word of GameLanguage.IDS in settings/language.txt (English = no
+            // file), read by the game library when the game starts (v1511+, game_language.h)
+            LANGUAGE = "language";
     /** Values of screenFill. */
     static final int SCREEN_FIT = 0, SCREEN_FILLED = 1;
     /** Values of touchControls. */
@@ -116,6 +119,9 @@ final class SettingsSchema {
             // Update 1 haptics: the ids are the words of settings/haptics.txt (HapticsWords; Light = no file)
             SettingSpec.choice(HAPTICS, "Performance", "Vibration", HapticsWords.IDS,
                     new String[] {"Off", "Light (default)", "Full"}, RumbleMapper.LIGHT, false),
+            // 1.2.1: the game's language, beside Vibration (same group, so the classic menu's groups do not change); the launcher
+            // shows it on Display (SettingsPages). GameLanguage.IDS are the words of settings/language.txt.
+            SettingSpec.choice(LANGUAGE, "Performance", "Language", GameLanguage.IDS, GameLanguage.LABELS, GameLanguage.DEFAULT, false),
             // Update 1 P6 My Music: the mode, the volume steps (MyMusicSettings.VOLUMES, default 80 %) and the order
             SettingSpec.choice(MY_MUSIC, "Music", "Mode", new String[] {"off", "everywhere"}, new String[] {"Off", "Everywhere"},
                     MY_MUSIC_OFF, false),
@@ -141,14 +147,14 @@ final class SettingsSchema {
      * boot at 100 %, no power figure; 06:22 and 07:38 the cost of 75 %, taken with v463). 125 % has no measurement,
      * so its text (HELP_MORE) says only what it is.
      */
-    static final String HELP_NATIVE = "The game draws every pixel of this screen. Sharpest picture. Measured on an AYN Thor: "
+    static final String HELP_NATIVE = "The game draws every pixel of this screen. Sharpest picture. Measured on one test device: "
             + "about 3 ms more per frame (49 to 43 fps indoors), slightly more power. Scaler and sharpness do nothing here.";
     static final String HELP_MORE = "More pixels than the original, then enlarged by the scaler.";
-    static final String HELP_ULTRA = HELP_MORE + " Measured on an AYN Thor: about 1 to 1.5 ms more per frame indoors.";
+    static final String HELP_ULTRA = HELP_MORE + " Measured on one test device: about 1 to 1.5 ms more per frame indoors.";
     static final String HELP_QUALITY = "The original game's size, enlarged by the scaler.";
-    static final String HELP_BALANCED = "Fewer pixels than the original, then enlarged by the scaler. Measured on an AYN Thor: "
+    static final String HELP_BALANCED = "Fewer pixels than the original, then enlarged by the scaler. Measured on one test device: "
             + "no faster than Quality indoors.";
-    static final String HELP_PERFORMANCE = "Fewer pixels, enlarged by the scaler. Measured on an AYN Thor: "
+    static final String HELP_PERFORMANCE = "Fewer pixels, enlarged by the scaler. Measured on one test device: "
             + "about half a millisecond faster, little or no power saved. Softer than Quality.";
     /** Before the text of 50 % and 125 %: values the game honours and the row shows, but does not offer. */
     static final String HELP_NOT_A_MODE = "Not one of the five modes. ";
@@ -199,14 +205,14 @@ final class SettingsSchema {
      * 40 fps at Native, measured with game build v464 (DISCOVERIES 2026-10-05 10:02, one boot): in the house 67 % of
      * frames were shown for the cap's three refreshes and 8.4 % of slots were late; outdoors 59 % were late.
      */
-    static final String HINT_40_NATIVE = "Measured on an AYN Thor at Native: uneven indoors (two frames in three evenly paced). Does not hold outdoors.";
+    static final String HINT_40_NATIVE = "Measured on one test device at Native: uneven indoors (two frames in three evenly paced). Does not hold outdoors.";
     /**
      * 30 fps at Native, measured with game build v464 (DISCOVERIES 2026-10-05 12:06, one boot): in the house 70 % of
      * frames were shown for the cap's four refreshes and 0.3 % of slots were late; outdoors 82 % and 4.7 %.
      */
-    static final String HINT_30_NATIVE = "Measured on an AYN Thor at Native: holds indoors and outdoors (70 to 82 % of frames evenly paced).";
+    static final String HINT_30_NATIVE = "Measured on one test device at Native: holds indoors and outdoors (70 to 82 % of frames evenly paced).";
     /** What "Measured:" becomes in a frame-cap note shown at another render size than the one it was measured at. */
-    static final String MEASURED = "Measured on an AYN Thor:", MEASURED_AT_QUALITY = "Measured on an AYN Thor at Quality:";
+    static final String MEASURED = "Measured on one test device:", MEASURED_AT_QUALITY = "Measured on one test device at Quality:";
 
     /**
      * The note under a frame cap in a stage B build, where the render resolution has modes; null when there is none.
@@ -245,7 +251,7 @@ final class SettingsSchema {
      * the one place to change. cap is a value of the Frame Rate Cap setting.
      */
     static boolean counterSeenUnder(int cap) {
-        return cap == CAP_60;
+        return cap == CAP_60 || cap == CAP_40;   // (1.2.1: the app's clean label seen at 40 fps on the Fold, 2026-11-22 18:29)
     }
 
     /**
@@ -264,9 +270,9 @@ final class SettingsSchema {
 
     static String hint(String key, int value) {
         if (key.equals(FRAME_CAP)) {
-            return value == CAP_40 ? "Measured on an AYN Thor: holds indoors. The Thor's second-screen dashboard makes some frames uneven."
-                    : value == CAP_30 ? "Measured on an AYN Thor: holds while driving (84 % of frames evenly paced)."
-                    : value == CAP_AUTO ? "Picks the cap itself. Measured on an AYN Thor: 40 indoors, 24 while driving." : null;
+            return value == CAP_40 ? "Measured on one test device: holds indoors."
+                    : value == CAP_30 ? "Measured on one test device: holds while driving (84 % of frames evenly paced)."
+                    : value == CAP_AUTO ? "Picks the cap itself. Measured on one test device: 40 indoors, 24 while driving." : null;
         }
         if (key.equals(RENDER_SCALE)) {
             return value > RENDER_SCALE_100 ? HINT_SUPERSAMPLING : value < RENDER_SCALE_100 ? HINT_SOFTER : null;
@@ -274,6 +280,7 @@ final class SettingsSchema {
         if (key.equals(FRAME_GENERATION)) {
             return value == FG_BETWEEN ? HINT_FG_BETWEEN : value == FG_AHEAD ? HINT_FG_AHEAD : null;
         }
+        if (key.equals(LANGUAGE)) return GameLanguage.HINT;
         if (key.equals(HAPTICS)) {
             return value == RumbleMapper.OFF ? HINT_HAPTICS_OFF : value == RumbleMapper.FULL ? HINT_HAPTICS_FULL : HINT_HAPTICS_LIGHT;
         }

@@ -1,6 +1,6 @@
 {
   "schema": "gta5-ship-config/1",
-  "build": "v1922-fivepocket-thor-3",
+  "build": "v1922-fivepocket-3",
   "filesRoot": "/data/user/0/dev.recompbootstrap.smoke.qol/files",
   "library": {
     "asset": "ship/game-library.bin",

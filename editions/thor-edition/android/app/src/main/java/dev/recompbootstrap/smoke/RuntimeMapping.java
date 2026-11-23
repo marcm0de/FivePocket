@@ -77,6 +77,7 @@ final class RuntimeMapping {
     static final String PHONE_POV_TXT = "private-trace/diag-phone-pov";
     /** script mods (trainer-mods lane): "scripts=on", read by the library when it starts (script_mods.h). */
     static final String MODS_TXT = "settings/mods.txt";
+    static final String LANGUAGE_TXT = GameLanguage.FILE; // one word of GameLanguage.IDS (English: no file), read by the library when it starts (v1511+)
     /** Update 1 haptics: "mode=off" / "mode=full" (HapticsWords; Light: no mode word, other words kept), read by this app's game window (Haptics). */
     static final String HAPTICS_TXT = HapticsWords.FILE;
     /** Update 1 P6 My Music: "mode=everywhere volume=80 order=shuffle" (MyMusicSettings.words), read by this app's game window. */
@@ -92,7 +93,7 @@ final class RuntimeMapping {
     private static final List<String> SETTING_FILES = Collections.unmodifiableList(Arrays.asList(
             SETTINGS_JSON, CAPABILITIES_CACHE, SCALER_TXT, SHARPNESS_TXT, RENDER_SCALE_TXT, WORLD_LOAD_TXT,
             LIMIT30, LIMIT60, PACE_40, PACE_30, PACE_24, PACE_AUTO, FG_BETWEEN, FG_AHEAD, SCALE_FSR1, SCALE_CUBIC, SCALE_LINEAR,
-            FSR1_STOPS, FPS_OVERLAY, INPUT_UNBUFFERED, SECOND_SCREEN_TXT, MINIMAP_TXT, LOWER_SCREEN_TXT, PHONE_POV_TXT, MODS_TXT));
+            FSR1_STOPS, FPS_OVERLAY, INPUT_UNBUFFERED, SECOND_SCREEN_TXT, MINIMAP_TXT, LOWER_SCREEN_TXT, PHONE_POV_TXT, MODS_TXT, LANGUAGE_TXT));
     /**
      * Developer test files of the world sliders (world_load.h). A stopped A/B script leaves one behind; the game
      * ignores a file that was there when it started, so removing a leftover changes no picture. Only ever removed.
@@ -237,7 +238,7 @@ final class RuntimeMapping {
         }
 
         if (capabilities.reads(FPS_OVERLAY)) {
-            want.put(FPS_OVERLAY, null);   // (1.2.0, owner: "remove that ... fps counter": the library's counter switch is never written, and removed)
+            want.put(FPS_OVERLAY, capabilities.effective(SettingsSchema.FPS_OVERLAY, settings.get(SettingsSchema.FPS_OVERLAY)) == 1 ? SWITCH : null);   // (1.2.1: the counter row again; the app draws the clean label)
         }
 
         // World sliders. Every slider at the original is "no file": the game then stores nothing at all. The
@@ -304,6 +305,11 @@ final class RuntimeMapping {
             // "scripts=on" alone is still written byte for byte as before; off with nothing else to keep still removes the file.
             boolean modsOn = capabilities.effective(SettingsSchema.SCRIPT_MODS, settings.get(SettingsSchema.SCRIPT_MODS)) == 1;
             want.put(MODS_TXT, ModsWords.parse(files.exists(MODS_TXT) ? content(files, MODS_TXT) : null).withScripts(modsOn).render());
+        }
+
+        // The game's language (1.2.1): the word, for a build that reads the file; English, the default, is no file.
+        if (capabilities.reads(LANGUAGE_TXT)) {
+            want.put(LANGUAGE_TXT, GameLanguage.content(capabilities.effective(SettingsSchema.LANGUAGE, settings.get(SettingsSchema.LANGUAGE))));
         }
 
         // Update 1 P6 My Music: the player's rows as words (MyMusicSettings), for a game library with My Music; absent at the defaults
@@ -380,7 +386,7 @@ final class RuntimeMapping {
             settings = supported(settings, capabilities, SettingsSchema.FRAME_GENERATION, generation);
         }
 
-        settings = supported(settings, capabilities, SettingsSchema.FPS_OVERLAY, 0);   // (1.2.0, owner: no frame-rate counter: always off)
+        settings = supported(settings, capabilities, SettingsSchema.FPS_OVERLAY, on(files, capabilities, FPS_OVERLAY) ? 1 : 0);   // (1.2.1: restored)
 
         if (on(files, capabilities, WORLD_LOAD_TXT)) {
             int[] world = parseWorld(content(files, WORLD_LOAD_TXT));
@@ -417,6 +423,10 @@ final class RuntimeMapping {
             byte[] word = content(files, MODS_TXT);
             boolean mods = ModsWords.parse(word).scripts;   // (Update 1: every spelling the library reads as on, with the page's words beside it)
             settings = supported(settings, capabilities, SettingsSchema.SCRIPT_MODS, mods ? 1 : 0);
+        }
+        if (capabilities.reads(LANGUAGE_TXT)) {   // (1.2.1: what the game will use; no file = English)
+            settings = supported(settings, capabilities, SettingsSchema.LANGUAGE,
+                    GameLanguage.parse(files.exists(LANGUAGE_TXT) ? content(files, LANGUAGE_TXT) : null));
         }
         if (capabilities.has(Capabilities.MY_MUSIC_MARKER) && files.exists(MY_MUSIC_TXT)) { // (Update 1 P6 My Music)
             byte[] words = content(files, MY_MUSIC_TXT);

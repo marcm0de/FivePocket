@@ -49,7 +49,10 @@ final class SettingsSchema {
             PHONE_SCREEN = "phoneScreen", PHONE_BACKGROUND = "phoneBackground", SCRIPT_MODS = "scriptMods",
             // Update 1 haptics (P2): the game's rumble on the device's motor and the on-screen buttons' tick; settings/haptics.txt, read
             // by the app's game window (Haptics); values RumbleMapper.OFF / LIGHT / FULL.
-            HAPTICS = "haptics";
+            HAPTICS = "haptics",
+            // 1.2.1 (owner 2026-11-22: the game's language): one word of GameLanguage.IDS in settings/language.txt (English = no
+            // file), read by the game library when the game starts (v1511+, game_language.h)
+            LANGUAGE = "language";
 
     /** Values (choice indexes) of frameCap. */
     static final int CAP_OFF = 0, CAP_60 = 1, CAP_40 = 2, CAP_30 = 3, CAP_24 = 4, CAP_AUTO = 5;
@@ -147,6 +150,9 @@ final class SettingsSchema {
             // Update 1 haptics: the ids are the words of settings/haptics.txt (HapticsWords; Light = no file)
             SettingSpec.choice(HAPTICS, "Performance", "Vibration", HapticsWords.IDS,
                     new String[] {"Off", "Light (default)", "Full"}, RumbleMapper.LIGHT, false),
+            // 1.2.1: the game's language, beside Vibration (same group, so the classic menu's groups do not change); the launcher
+            // shows it on Display (SettingsPages). GameLanguage.IDS are the words of settings/language.txt.
+            SettingSpec.choice(LANGUAGE, "Performance", "Language", GameLanguage.IDS, GameLanguage.LABELS, GameLanguage.DEFAULT, false),
             // Update 1 P6 My Music: the mode, the volume steps (MyMusicSettings.VOLUMES, default 80 %) and the order
             SettingSpec.choice(MY_MUSIC, "Music", "Mode", new String[] {"off", "everywhere"}, new String[] {"Off", "Everywhere"},
                     MY_MUSIC_OFF, false),
@@ -269,7 +275,7 @@ final class SettingsSchema {
      * the one place to change. cap is a value of the Frame Rate Cap setting.
      */
     static boolean counterSeenUnder(int cap) {
-        return cap == CAP_60;
+        return cap == CAP_60 || cap == CAP_40;   // (1.2.1: the app's clean label seen at 40 fps on the Fold, 2026-11-22 18:29)
     }
 
     /**
@@ -319,6 +325,7 @@ final class SettingsSchema {
         if (key.equals(LOWER_SCREEN)) {
             return value == LOWER_OFF ? HINT_LOWER_OFF : HINT_LOWER_HUD;
         }
+        if (key.equals(LANGUAGE)) return GameLanguage.HINT;
         if (key.equals(HAPTICS)) {
             return value == RumbleMapper.OFF ? HINT_HAPTICS_OFF : value == RumbleMapper.FULL ? HINT_HAPTICS_FULL : HINT_HAPTICS_LIGHT;
         }

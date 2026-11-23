@@ -24,8 +24,8 @@ android {
         // Stays 1 on purpose: an app that is not debuggable cannot be downgraded without an uninstall, and an
         // uninstall removes the game data and the saves. With the same version code the debug build can still be
         // installed over the ship build (and the other way round) with "adb install -r", data kept.
-        versionCode = 4
-        versionName = "1.2.0"
+        versionCode = 5   // 1.2.1 hotfix (2026-11-22): installs over 1.2.0 (code 4), data kept
+        versionName = "1.2.1"
 
         ndk {
             abiFilters += "arm64-v8a"

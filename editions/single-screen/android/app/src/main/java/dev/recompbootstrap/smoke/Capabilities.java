@@ -169,6 +169,9 @@ final class Capabilities {
         if (key.equals(SettingsSchema.SCRIPT_MODS)) {
             return reads(RuntimeMapping.MODS_TXT) ? null : REASON_NOT_IN_BUILD; // (script-mods: the library reads settings/mods.txt)
         }
+        if (key.equals(SettingsSchema.LANGUAGE)) {
+            return reads(RuntimeMapping.LANGUAGE_TXT) ? null : REASON_NOT_IN_BUILD; // (1.2.1: the library reads settings/language.txt, v1511+)
+        }
         if (key.equals(SettingsSchema.INPUT_UNBUFFERED)) {
             return inputOptionInApp ? null : REASON_INPUT;
         }

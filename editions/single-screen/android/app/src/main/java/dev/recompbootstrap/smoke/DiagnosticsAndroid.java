@@ -38,7 +38,7 @@ final class DiagnosticsAndroid {
         f.nowMs = System.currentTimeMillis();
         f.packageName = activity.getPackageName();
         try { f.app = String.valueOf(activity.getApplicationInfo().loadLabel(activity.getPackageManager())); } catch (RuntimeException e) { f.app = "?"; }
-        f.edition = f.packageName.endsWith(".thor") ? "Thor Edition (dual screen)" : "single screen";
+        f.edition = "single screen";   // (1.2.1: the single-screen app names no other edition)
         f.version = version(activity);
         try { f.gameCode = gameCode(activity, filesDir); } catch (RuntimeException | LinkageError e) { f.gameCode = "unreadable (" + e.getClass().getSimpleName() + ")"; }
         f.librarySha = librarySha(filesDir);

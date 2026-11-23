@@ -1,6 +1,11 @@
 package dev.recompbootstrap.smoke;
 
+import android.app.Activity;
+import android.content.ContentResolver;
+import android.content.Intent;
+import android.net.Uri;
 import android.os.Build;
+import android.provider.DocumentsContract;
 import android.view.View;
 import java.io.File;
 import java.io.IOException;
@@ -56,7 +61,7 @@ final class SettingsScreen {
 
     /** True while every command belongs to the model: a question is open or a save is running. */
     boolean capturing() {
-        return saving || model.overlay() != MenuModel.OVERLAY_NONE || model.pendingAction() != MenuModel.ACTION_NONE;
+        return saving || savesBusy || model.overlay() != MenuModel.OVERLAY_NONE || model.pendingAction() != MenuModel.ACTION_NONE;
     }
 
     /** True when the highlight can go from the category's name into its rows. */
@@ -103,6 +108,133 @@ final class SettingsScreen {
         return row >= 0 && SettingsSchema.SCRIPT_MODS.equals(model.rowKey(row)) && model.rowEnabled(row) && !dirty() && !capturing();
     }
 
+    // ------------------------------------------------------------------------------------------ save export / import (1.2.1)
+
+    static final int REQUEST_EXPORT_SAVES = 0x5A1, REQUEST_IMPORT_SAVES = 0x5A2;
+    static final String TEXT_SAVES_GAME_RUNNING = "Close the game first: it writes its saves while it runs.",
+            TEXT_SAVES_WORKING = "Working on your saves\u2026", TEXT_SAVES_REPLACED = "Your saves were replaced. The ones before are kept in the app.",
+            TEXT_EXPORT_UNCHECKED = "The export file did not read back correctly, so it was removed. Try another place to save it.";
+    private boolean savesBusy, stagedImport;
+
+    private void savesAction(int action) {
+        if (savesBusy) return;
+        if (host.gameRunning()) {
+            model.note(TEXT_SAVES_GAME_RUNNING);
+            return;
+        }
+        if (action == MenuModel.ACTION_EXPORT_SAVES) {
+            host.startForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/zip")
+                    .putExtra(Intent.EXTRA_TITLE, "FivePocket-saves-" + stamp("yyyyMMdd-HHmm") + ".zip"), REQUEST_EXPORT_SAVES);
+        } else if (action == MenuModel.ACTION_IMPORT_SAVES) {
+            host.startForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+                    .putExtra(Intent.EXTRA_MIME_TYPES, new String[] {"application/zip", "application/x-zip-compressed", "application/octet-stream"})
+                    .putExtra(Intent.EXTRA_LOCAL_ONLY, true), REQUEST_IMPORT_SAVES);
+        } else {   // the player chose Replace my saves
+            stagedImport = false;
+            final File filesDir = host.filesDir();
+            final String backupName = stamp("yyyyMMdd-HHmmss");
+            final String[] problem = new String[1];
+            savesBusy = true;
+            model.note(TEXT_SAVES_WORKING);
+            host.background(new Runnable() {
+                @Override public void run() {
+                    problem[0] = SaveArchive.restore(filesDir, backupName);
+                }
+            }, new Runnable() {
+                @Override public void run() {
+                    savesBusy = false;
+                    model.note(problem[0] == null ? TEXT_SAVES_REPLACED : problem[0]);
+                    owner.render();
+                }
+            });
+        }
+    }
+
+    private void savesPicked(final int requestCode, final Uri uri) {
+        if (uri == null) return;   // closed without a choice: nothing changes
+        if (host.gameRunning()) {
+            model.note(TEXT_SAVES_GAME_RUNNING);
+            owner.render();
+            return;
+        }
+        final File filesDir = host.filesDir();
+        final ContentResolver resolver = host.activity().getContentResolver();
+        final java.util.Map<String, String> about = about();
+        final SaveArchive.Result[] result = new SaveArchive.Result[1];
+        savesBusy = true;
+        model.note(TEXT_SAVES_WORKING);
+        owner.render();
+        host.background(new Runnable() {
+            @Override public void run() {
+                try {
+                    if (requestCode == REQUEST_EXPORT_SAVES) {
+                        try (java.io.OutputStream out = resolver.openOutputStream(uri, "w")) {
+                            if (out == null) throw new IOException("the file cannot be written");
+                            result[0] = SaveArchive.export(filesDir, out, about);
+                        }
+                        if (result[0].ok) {   // read back through Import's own checks: "exported" only for a file Import takes
+                            try (java.io.InputStream back = resolver.openInputStream(uri)) {
+                                SaveArchive.Result checked = back == null ? SaveArchive.Result.failed("") : SaveArchive.check(back);
+                                if (!checked.ok) result[0] = SaveArchive.Result.failed(TEXT_EXPORT_UNCHECKED);
+                            }
+                        }
+                        if (!result[0].ok) {   // a half-written or unchecked file must not look like a good export
+                            try {
+                                DocumentsContract.deleteDocument(resolver, uri);
+                            } catch (Exception kept) {
+                                result[0] = SaveArchive.Result.failed(result[0].sentence + " Delete the file it made: it is not a usable export.");
+                            }
+                        }
+                    } else {
+                        try (java.io.InputStream in = resolver.openInputStream(uri)) {
+                            if (in == null) throw new IOException("the file cannot be opened");
+                            result[0] = SaveArchive.read(filesDir, in);
+                        }
+                    }
+                } catch (IOException | RuntimeException e) {
+                    result[0] = SaveArchive.Result.failed("The file could not be used (" + e.getClass().getSimpleName() + ").");
+                }
+            }
+        }, new Runnable() {
+            @Override public void run() {
+                savesBusy = false;
+                SaveArchive.Result r = result[0];
+                if (requestCode == REQUEST_IMPORT_SAVES && r != null && r.ok) {
+                    stagedImport = true;
+                    model.note(null);
+                    model.askImportSaves(SaveArchive.summary(r));
+                } else {
+                    model.note(r == null ? "The file could not be used." : r.sentence);
+                }
+                owner.render();
+            }
+        });
+    }
+
+    /** What the manifest says an export came from. */
+    private java.util.Map<String, String> about() {
+        java.util.Map<String, String> about = new java.util.LinkedHashMap<String, String>();
+        try {
+            android.content.pm.PackageInfo info = host.activity().getPackageManager().getPackageInfo(host.activity().getPackageName(), 0);
+            about.put("app", info.versionName == null ? "" : info.versionName);
+        } catch (Exception unknown) {
+            about.put("app", "");
+        }
+        about.put("edition", host.activity().getPackageName());
+        about.put("created", stamp("yyyy-MM-dd HH:mm"));
+        return about;
+    }
+
+    private static String stamp(String pattern) {
+        return new java.text.SimpleDateFormat(pattern, java.util.Locale.ROOT).format(new java.util.Date());
+    }
+
+    void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == REQUEST_EXPORT_SAVES || requestCode == REQUEST_IMPORT_SAVES) {
+            savesPicked(requestCode, resultCode == Activity.RESULT_OK && data != null ? data.getData() : null);
+        }
+    }
+
     /** The highlight goes from the category's name into its rows. */
     void enter() {
         int category = nav.column(ShellNav.SETTINGS);
@@ -144,6 +276,18 @@ final class SettingsScreen {
     /** Draws the model's new state and does what it asks for. */
     private void settle() {
         int action = model.pendingAction();
+        if (action == MenuModel.ACTION_EXPORT_SAVES || action == MenuModel.ACTION_IMPORT_SAVES || action == MenuModel.ACTION_IMPORT_CONFIRMED) {
+            model.actionTaken();
+            savesAction(action);   // 1.2.1: save export / import
+            owner.render();
+            return;
+        }
+        if (stagedImport && model.overlay() != MenuModel.OVERLAY_IMPORT_SAVES && action == MenuModel.ACTION_NONE) {
+            stagedImport = false;   // the question was cancelled: the checked copy goes
+            final File filesDir = host.filesDir();
+            host.background(new Runnable() { @Override public void run() { SaveArchive.discardStaging(filesDir); } },
+                    new Runnable() { @Override public void run() { } });
+        }
         if (action == MenuModel.ACTION_SAVE) {
             save();
             return;

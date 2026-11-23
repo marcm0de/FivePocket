@@ -125,6 +125,7 @@ final class PublicGameCode implements ShipBundle {
         String problem = installedProblem(InstallGuard.root(filesDir), config);
         if (problem != null) return problem;
         ShipFirstRun.Result result = ShipFirstRun.run(this, filesDir, progress, ShipFiles.DISK);
+        if (result.ok()) CodeBundleImporter.dropPrevious(InstallGuard.root(filesDir));   // (1.2.1 replace flow: the replaced bundle, kept until now)
         return result.ok() ? null : PublicCodeWords.activation(result.error);
     }
 

@@ -253,7 +253,7 @@ final class ShipFirstRun {
      */
     static boolean counterOffUnlessSaved(File filesDir) {
         try {
-            // (1.2.0, owner: no frame-rate counter: removed at every start, also after the player saved settings)
+            if (ShipFiles.present(new File(filesDir, SETTINGS_JSON))) return false;   // (1.2.1: as 1.1.5, what the player saved is kept)
             File counter = new File(filesDir, COUNTER_SWITCH);
             if (!ShipFiles.regularFileIn(filesDir, counter)) return false;
             return java.nio.file.Files.deleteIfExists(counter.toPath());

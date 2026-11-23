@@ -25,9 +25,6 @@ public final class DebugGameLauncher implements GameLauncher {
 
     @Override public String prepare(File filesDir, boolean acceptUnqualified) {
         prepared = null;
-        // 1.2.0 (owner: "remove that ... fps counter"): no game ever starts with the library's frame-rate counter switch in place, whatever
-        // an earlier version or a script left (the library draws its counter only while files/private-trace/diag-fps-overlay exists)
-        ShipFirstRun.counterOffUnlessSaved(filesDir);
         ShipPlay.Result result = ShipPlay.prepare(ShipApplication.apkPath(), filesDir, acceptUnqualified);
         if (result.error != null) {
             return result.error;

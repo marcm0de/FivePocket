@@ -50,7 +50,7 @@ final class PrivateGamepadInput implements InputManager.InputDeviceListener {
         return device!=null && !device.isVirtual() &&
                 (device.supportsSource(InputDevice.SOURCE_GAMEPAD) || device.supportsSource(InputDevice.SOURCE_JOYSTICK));
     }
-    private static boolean thor(InputDevice device) {
+    private static boolean aynPad(InputDevice device) {
         return supported(device) && device.getVendorId()==0x2020 && device.getProductId()==0x0111;
     }
     private static boolean hasAxis(InputDevice device,int axis) {
@@ -86,7 +86,7 @@ final class PrivateGamepadInput implements InputManager.InputDeviceListener {
         int[] ranks=new int[ids.length];
         for(int i=0;i<ids.length;++i) {
             InputDevice candidate=controller(ids[i]);
-            ranks[i]=ControllerChoice.rank(supported(candidate),thor(candidate),gamepadButtons(candidate));
+            ranks[i]=ControllerChoice.rank(supported(candidate),aynPad(candidate),gamepadButtons(candidate));
         }
         int selected=ControllerChoice.pick(deviceId,ids,ranks);
         if(selected==deviceId && !changed)return;
@@ -121,7 +121,7 @@ final class PrivateGamepadInput implements InputManager.InputDeviceListener {
             if(rightAxisX>=0)axes|=12;
             boolean[] triggerKeys=device.hasKeys(KeyEvent.KEYCODE_BUTTON_L2,KeyEvent.KEYCODE_BUTTON_R2);
             triggers=(triggerKeys[0]||leftAxis>=0?1:0)|(triggerKeys[1]||rightAxis>=0?2:0);
-            description=(thor(device)?"AYN Thor / Odin":"Android gamepad")+" -> Xbox 360, player 1\n"+
+            description=(aynPad(device)?"AYN built-in controller":"Android gamepad")+" -> Xbox 360, player 1\n"+
                     device.getName()+" (id "+deviceId+")\nRight stick: "+MotionEvent.axisToString(rightAxisX)+" / "+
                     MotionEvent.axisToString(rightAxisY)+(restDecided?" (seen at rest)":"")+"; LT/RT: "+MotionEvent.axisToString(leftAxis)+" / "+MotionEvent.axisToString(rightAxis);
         } else if(QolTouch.padConnected()) { // touch-controls (SPEC 5): the on-screen pad is the controller: every 360 input

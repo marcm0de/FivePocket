@@ -22,8 +22,8 @@ final class SettingsPages {
      * without a setting key (the "files differ" row and the two action rows) are SAVE's.
      */
     private static final String[][] ORDER = shown(new String[][] {
-            {SettingsSchema.SCALER, SettingsSchema.FSR_SHARPNESS, SettingsSchema.RENDER_SCALE, SettingsSchema.MINIMAP_SCREENS, SettingsSchema.LOWER_SCREEN},
-            {SettingsSchema.FRAME_CAP, SettingsSchema.FRAME_GENERATION},   // (1.2.0, owner: no frame-rate counter)
+            {SettingsSchema.SCALER, SettingsSchema.FSR_SHARPNESS, SettingsSchema.RENDER_SCALE, SettingsSchema.MINIMAP_SCREENS, SettingsSchema.LOWER_SCREEN, SettingsSchema.LANGUAGE},   // (1.2.1, owner: the game's language, last on Display),
+            {SettingsSchema.FRAME_CAP, SettingsSchema.FRAME_GENERATION, SettingsSchema.FPS_OVERLAY},   // (1.2.1, owner: the clean counter row again)
             {SettingsSchema.WORLD_TRAFFIC, SettingsSchema.WORLD_PEDESTRIANS, SettingsSchema.WORLD_PARKED_CARS,
                     SettingsSchema.WORLD_SCENARIO_PEDESTRIANS, SettingsSchema.WORLD_DRAW_DISTANCE, SettingsSchema.SCRIPT_MODS},
             // thor-char (2026-10-24): the three wheel rows (touch-selectable on the lower screen) under Controls: Display with seven rows
@@ -49,6 +49,11 @@ final class SettingsPages {
     static final String TEXT_DRIFT_HELP = "Apply Again writes your saved settings to the game's files. Show lists what differs.";
     static final String TEXT_RESTORE_HELP = "Puts every row back to the original game's value. Nothing is written until you save.";
     static final String TEXT_SAVE_HELP = "Writes the settings to the game's files. They apply the next time the game starts.";
+    /** 1.2.1 (owner): the save export / import rows. */
+    static final String TEXT_EXPORT_SAVES_HELP = "Writes all your saves (Story, Sandbox, Online character) into one file you choose. Nothing in the app changes.",
+            TEXT_IMPORT_SAVES_HELP = "Reads a file made by Export saves. It shows what it holds and asks first; your saves are kept in the app.";
+    /** 1.2.1 (lead, players see it): the word over the save import question, in place of the frame's "alert". */
+    static final String HEADING_IMPORT_SAVES = "Import Saves";
     static final String TEXT_NOT_AVAILABLE = "Not available: ";
     /** In place of "Not available: Not in this version" (setup-fixes, defect 8 of the vm-robust run). */
     static final String TEXT_NOT_IN_VERSION = "Not available in this version.";
@@ -340,6 +345,7 @@ final class SettingsPages {
             String[] labels = new String[model.overlayButtonCount()];
             for (int b = 0; b < labels.length; ++b) labels[b] = model.overlayButtonLabel(b);
             page.alert = new ConfirmOverlay(model.overlayTitle(), model.overlayDetail(), labels, model.overlayFocused());
+            if (model.overlay() == MenuModel.OVERLAY_IMPORT_SAVES) page.alert.heading = HEADING_IMPORT_SAVES;   // (1.2.1: not the frame's bare "alert")
             page.alert.scroll = alertScroll;
         }
     }
@@ -403,13 +409,14 @@ final class SettingsPages {
             case SettingsSchema.FSR_SHARPNESS: return "How strongly FSR 1 sharpens the enlarged picture.";
             case SettingsSchema.RENDER_SCALE: return "The size the game draws at before the picture is enlarged.";
             case SettingsSchema.FRAME_GENERATION: return "Adds a generated picture to every frame the game draws under the 30 fps cap.";
-            case SettingsSchema.FPS_OVERLAY: return "Shows the frame rate in the top right corner while the game runs.";
+            case SettingsSchema.FPS_OVERLAY: return "Shows the frame rate in the top left corner while the game runs.";
             case SettingsSchema.WORLD_TRAFFIC:
             case SettingsSchema.WORLD_PEDESTRIANS:
             case SettingsSchema.WORLD_PARKED_CARS:
             case SettingsSchema.WORLD_SCENARIO_PEDESTRIANS: return SettingsSchema.hint(key, SettingsSchema.WORLD_DENSITY_MIN);
             case SettingsSchema.WORLD_DRAW_DISTANCE: return "How far away the game draws detailed objects.";
             case SettingsSchema.INPUT_UNBUFFERED: return "Passes stick movement to the game as soon as Android reports it.";
+            case SettingsSchema.LANGUAGE: return "The language of the game's text and menus.";
             case SettingsSchema.HAPTICS: return "Vibration of this device for the game's rumble and for button taps.";
             case SettingsSchema.MINIMAP_SCREENS: return "Which screen shows the minimap and the wanted stars.";
             case SettingsSchema.LOWER_SCREEN: return "Whether the lower screen shows the HUD or stays dark.";
@@ -440,8 +447,9 @@ final class SettingsPages {
             if (model.rowKind(index) == MenuModel.KIND_BANNER) {
                 lines.add(new MenuScenes.Line(TEXT_DRIFT_HELP, MenuScenes.TONE_NORMAL));
             } else {
-                boolean save = MenuModel.TEXT_SAVE.equals(model.rowLabel(index));
-                lines.add(new MenuScenes.Line(save ? TEXT_SAVE_HELP : TEXT_RESTORE_HELP, MenuScenes.TONE_NORMAL));
+                String label = model.rowLabel(index);
+                lines.add(new MenuScenes.Line(MenuModel.TEXT_SAVE.equals(label) ? TEXT_SAVE_HELP : MenuModel.TEXT_EXPORT_SAVES.equals(label) ? TEXT_EXPORT_SAVES_HELP
+                        : MenuModel.TEXT_IMPORT_SAVES.equals(label) ? TEXT_IMPORT_SAVES_HELP : TEXT_RESTORE_HELP, MenuScenes.TONE_NORMAL));
             }
             return lines;
         }

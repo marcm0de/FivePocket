@@ -64,7 +64,6 @@ public final class BootstrapActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         try { menuSounds = new UiSounds(getFilesDir()); } catch (RuntimeException e) { menuSounds = null; }
-        ShipFirstRun.counterOffUnlessSaved(getFilesDir());   // (1.2.0, owner: no frame-rate counter: an old switch goes as the launcher opens)
         takeReturn(getIntent());   // Update 1 Online mode: started by the game window's Online leave (LaunchReturn)
         if (!ScreenStack.smokeRequested(new IntentExtras())) {
             // Launcher mode. NativeBridge is not touched on this path, so the self-test library is not loaded.

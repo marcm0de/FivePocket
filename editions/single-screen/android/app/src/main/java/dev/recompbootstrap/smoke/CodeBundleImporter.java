@@ -24,7 +24,8 @@ import java.util.zip.CRC32;
  * The file is read once, front to back (it comes from the system file chooser as a stream). Every component is
  * written into staging/bundle.part while its size, CRC-32 and SHA-256 are checked against the manifest; the seal
  * over the whole file is checked at the end; only then is the directory renamed to bundle/ in one step. Any
- * failure removes staging/bundle.part and leaves bundle/ absent. An existing bundle/ is never replaced.
+ * failure removes staging/bundle.part and leaves bundle/ absent. An existing bundle/ is never replaced by a developer (format 1)
+ * import; a public import replaces it only after the new file checked out in full (1.2.1 hotfix, the replace flow: PREVIOUS).
  *
  * Checks, in the order of tools/own_disc/BUNDLE-FORMAT.md: (3) the first entry is manifest.json, no name repeats,
  * every entry is stored, not encrypted and well named; (4) format version 1 and the runtime interface this app
@@ -35,6 +36,12 @@ import java.util.zip.CRC32;
  */
 final class CodeBundleImporter {
     static final String BUNDLE = "bundle";
+    /**
+     * 1.2.1 hotfix (lead, owner: the replace flow, ported from the next update without its TU/DLC placing): the bundle a public import
+     * replaced, kept beside the new one until the new game code is in place (its activation passed, PublicGameCode.activate), then
+     * removed. An old bundle that fails this app's own pin can never run here, so it is removed right after the swap.
+     */
+    static final String PREVIOUS = "bundle.previous";
     static final String PART = VerifiedExtractor.STAGING + "/bundle.part";
     static final int SEAL_BYTES = 85, END_RECORD_BYTES = 22, MAX_MANIFEST_BYTES = 1 << 20;
     private static final byte[] SEAL_PREFIX = "own-disc-seal sha256=".getBytes(StandardCharsets.US_ASCII);
@@ -81,7 +88,20 @@ final class CodeBundleImporter {
                 return VerifiedExtractor.Outcome.failed(VerifiedExtractor.Problem.EXISTING_INSTALL, VerifiedExtractor.EXISTING_MESSAGE + existing);
             }
             File bundleDirectory = InstallGuard.under(root, BUNDLE);
-            if (bundleDirectory.exists()) {
+            recoverSwap(root);   // a run killed between the two renames of a replacement: the old bundle back in place
+            boolean replacing = false, installedGood = false;
+            String installedSeal = null;
+            if (publicContract != null && bundleDirectory.exists()) {
+                // 1.2.1 (replace flow): the chosen file is read and checked in full into staging; it replaces what is there only when
+                // it checks out. What is installed stays untouched until then, whatever its state.
+                replacing = true;
+                installedGood = PublicGameCode.installedProblem(root, publicContract) == null;
+                try {
+                    installedSeal = PublicGameCode.seal(root);
+                } catch (IOException noSeal) {
+                    installedSeal = null;
+                }
+            } else if (bundleDirectory.exists()) {
                 // An earlier import renamed the directory into place but could not write the record any more.
                 String damage = publicContract == null ? verifyInstalled(root, spec) : PublicGameCode.installedProblem(root, publicContract);
                 if (damage != null) {
@@ -203,16 +223,29 @@ final class CodeBundleImporter {
             String sealProblem = in.sealProblem();
             if (sealProblem != null) return damaged(sealProblem);
 
-            if (bundleDirectory.exists()) {
+            if (bundleDirectory.exists() && !replacing) {
                 return VerifiedExtractor.Outcome.failed(VerifiedExtractor.Problem.EXISTING_INSTALL, "Game code appeared in place"
                         + " meanwhile; it was not changed.");
+            }
+            if (replacing && installedGood && in.seal().equals(installedSeal)) {
+                return VerifiedExtractor.Outcome.done();   // the same bundle, intact: nothing is replaced (staging is removed below)
             }
             if (publicContract != null) writeFile(InstallGuard.under(root, PART + "/seal.txt"),
                     (in.seal() + "\n").getBytes(StandardCharsets.US_ASCII));
             VerifiedExtractor.syncDirectory(part);
-            Files.move(part.toPath(), bundleDirectory.toPath(), StandardCopyOption.ATOMIC_MOVE);
-            committed = true;
-            VerifiedExtractor.syncDirectory(root);
+            if (replacing) {
+                File previous = InstallGuard.under(root, PREVIOUS);
+                if (previous.exists()) deleteTree(previous);   // an older kept copy: one previous at most
+                Files.move(bundleDirectory.toPath(), previous.toPath(), StandardCopyOption.ATOMIC_MOVE);
+                Files.move(part.toPath(), bundleDirectory.toPath(), StandardCopyOption.ATOMIC_MOVE);
+                committed = true;
+                VerifiedExtractor.syncDirectory(root);
+                if (!installedGood) discard(previous);   // it fails this app's pin: it can never run here
+            } else {
+                Files.move(part.toPath(), bundleDirectory.toPath(), StandardCopyOption.ATOMIC_MOVE);
+                committed = true;
+                VerifiedExtractor.syncDirectory(root);
+            }
             if (publicContract == null) InstallGuard.refreshRecord(root, spec);
             progress.update(total, total, bundle.entries.size(), bundle.entries.size(), "");
             return VerifiedExtractor.Outcome.done();
@@ -238,6 +271,29 @@ final class CodeBundleImporter {
             return VerifiedExtractor.Outcome.failed("Import stopped unexpectedly: " + VerifiedExtractor.reason(e) + ".");
         } finally {
             if (part != null && !committed) discard(part);
+        }
+    }
+
+    /**
+     * A replacement renames bundle/ to bundle.previous, then staging's copy to bundle/. A run killed between the two leaves no
+     * bundle/ beside bundle.previous: the old bundle goes back in place (the player imports the file again). Never throws.
+     */
+    static void recoverSwap(File root) {
+        try {
+            File bundle = InstallGuard.under(root, BUNDLE), previous = InstallGuard.under(root, PREVIOUS);
+            if (!bundle.exists() && previous.isDirectory()) Files.move(previous.toPath(), bundle.toPath(), StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException | RuntimeException ignored) {
+            // the next import or start tries again
+        }
+    }
+
+    /** The new game code is in place (its activation passed): the bundle it replaced is removed. Never throws. */
+    static void dropPrevious(File root) {
+        try {
+            File previous = InstallGuard.under(root, PREVIOUS);
+            if (previous.exists() && InstallGuard.under(root, BUNDLE).isDirectory()) discard(previous);
+        } catch (IOException | RuntimeException ignored) {
+            // removed by the next activation
         }
     }
 

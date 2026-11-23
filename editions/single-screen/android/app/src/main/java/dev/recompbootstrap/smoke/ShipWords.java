@@ -28,8 +28,6 @@ final class ShipWords {
 
     /** {what the developer build says, what the handed-out build says}; applied in this order. */
     private static final String[][] REWORDED = {
-            {" The Thor's second-screen dashboard makes some frames uneven.", ""},
-            {"Measured on an AYN Thor", MEASURED},
             {"\nPrivate build - not for distribution.", ""},
             {"Private build - not for distribution.", ""},
             {" (needs game build v463 or newer)", ""},

@@ -99,6 +99,13 @@ public final class ShipStartActivity extends Activity {
         final boolean force = fromLauncher;
         new Thread(new Runnable() {
             @Override public void run() {
+                if (!gameRunning && VerifiedExtractor.begin()) {   // 1.2.1: a replacement killed between its two renames: the old bundle back
+                    try {
+                        CodeBundleImporter.recoverSwap(InstallGuard.root(filesDir));
+                    } finally {
+                        VerifiedExtractor.end();
+                    }
+                }
                 // Public app updates preserve imported code. Setup activates it only after a checked import.
                 if (PublicGameCode.isPublic(apkPath)) { done(null); return; }
                 ShipBundle.Apk bundle = null;

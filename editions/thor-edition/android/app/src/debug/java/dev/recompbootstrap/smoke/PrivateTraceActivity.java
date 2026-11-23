@@ -90,7 +90,7 @@ public final class PrivateTraceActivity extends Activity {
         sideMenuView=new SideMenuView(this,menus.main);
         sideMenuPad=new SideMenuPad(menus.main,PadGlue.timer(),this::menuChanged); // (Update 1 QoL)
         sideMenuView.source(surface); // (menu-redesign: the game's picture, blurred, behind the menu)
-        // (1.2.0, owner: "remove that ... fps counter": no frame-rate label)
+        content.addView(new FpsLabelView(this),new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.MATCH_PARENT)); // (v832: the small "60"; 1.2.1, owner: "I like the old minimalist fps counter": restored)
         content.addView(sideMenuView,new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.MATCH_PARENT));
         final boolean inputOption=android.os.Build.VERSION.SDK_INT>=30;
         final ThorMenus m=menus;

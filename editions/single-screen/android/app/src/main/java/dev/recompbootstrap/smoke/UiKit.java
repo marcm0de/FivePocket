@@ -46,6 +46,8 @@ final class UiKit {
         final Typeface game;
         /** M6: the disc's condensed face (Scene.GAME_COND), or null. */
         final Typeface gameCond;
+        /** 1.2.1 (Language row): the characters each disc face has, or null when unknown (then the face is kept for any text). */
+        final FontCoverage gameCover, condCover;
         /** The game's own controller glyphs (Scene.IMAGE), by file name; empty when they were not imported. */
         final java.util.Map<String, Bitmap> glyphs = new java.util.HashMap<String, Bitmap>();
         /** The disc's loading-screen art (Scene.backdropArt), or null when it was not imported. */
@@ -57,6 +59,8 @@ final class UiKit {
             heavy = load(assets, WEIGHT_HEAVY, Typeface.create("sans-serif-black", Typeface.BOLD));
             game = loadFile(UiAssets.font(filesDir, UiAssets.GAME_FONT));   // the app's private files only (UiAssets), never the package
             gameCond = loadFile(UiAssets.font(filesDir, UiAssets.COND_FONT));
+            gameCover = game == null ? null : FontCoverage.read(UiAssets.font(filesDir, UiAssets.GAME_FONT));
+            condCover = gameCond == null ? null : FontCoverage.read(UiAssets.font(filesDir, UiAssets.COND_FONT));
             Bitmap picture = null;
             File artFile = UiAssets.font(filesDir, UiAssets.ART_FILE);
             if (artFile != null) {
@@ -118,7 +122,14 @@ final class UiKit {
         }
 
         Typeface of(int face) {
-            switch (pick(face, game != null, gameCond != null)) {
+            return of(face, null);
+        }
+
+        /** The face for this text: a disc face that lacks one of its characters (Korean, Chinese) gives way to the app's own face. */
+        Typeface of(int face, String text) {
+            boolean gameCovers = text == null || gameCover == null || gameCover.covers(text);
+            boolean condCovers = text == null || condCover == null || condCover.covers(text);
+            switch (pick(face, game != null, gameCond != null, gameCovers, condCovers)) {
                 case Scene.GAME: return game;
                 case Scene.GAME_COND: return gameCond;
                 case Scene.BOLD: return bold;
@@ -136,6 +147,18 @@ final class UiKit {
             if (face == Scene.GAME_COND) return hasCond ? Scene.GAME_COND : hasGame ? Scene.GAME : Scene.REGULAR;
             if (hasGame) return Scene.GAME;
             return face == Scene.BOLD ? Scene.BOLD : face == Scene.HEAVY ? Scene.HEAVY : Scene.REGULAR;
+        }
+
+        /**
+         * pick() for one text (1.2.1, the Language row): the disc's menu font (font_lib_efigs) has Latin and Cyrillic but no Korean or
+         * Chinese, so a text with a character the picked disc face lacks is drawn in the condensed face's sibling when that one has it,
+         * else in the app's own face for the style (the bundled face, whose fallback is the system's fonts). Pure.
+         */
+        static int pick(int face, boolean hasGame, boolean hasCond, boolean gameCovers, boolean condCovers) {
+            int picked = pick(face, hasGame, hasCond);
+            if (picked == Scene.GAME_COND && !condCovers) picked = hasGame && gameCovers ? Scene.GAME : pick(face, false, false);
+            if (picked == Scene.GAME && !gameCovers) picked = pick(face, false, false);
+            return picked;
         }
 
         private static Faces shared;
@@ -230,9 +253,9 @@ final class UiKit {
             faces = Faces.get(context);
         }
 
-        private void face(Paint target, float sizePx, int face) {
+        private void face(Paint target, float sizePx, int face, String text) {
             target.setTextSize(sizePx);
-            target.setTypeface(faces.of(face));
+            target.setTypeface(faces.of(face, text));
         }
 
         @Override public float width(String text, int sizePx, int face) {
@@ -240,7 +263,7 @@ final class UiKit {
         }
 
         @Override public float width(String text, float sizePx, int face) {
-            face(measurePaint, sizePx, face);
+            face(measurePaint, sizePx, face, text);
             return measurePaint.measureText(text);
         }
 
@@ -361,7 +384,7 @@ final class UiKit {
                         canvas.drawPath(path, paint);
                         break;
                     default: {   // TEXT: centred vertically in its box
-                        face(paint, Scene.sizeOf(item), item.face);
+                        face(paint, Scene.sizeOf(item), item.face, item.text);
                         paint.getFontMetrics(metrics);
                         float baseline = item.y + item.h / 2f - (metrics.ascent + metrics.descent) / 2f;
                         float width = paint.measureText(item.text);
