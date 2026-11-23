@@ -63,6 +63,13 @@ def files_under(folder: Path):
     return sorted((p for p in folder.rglob('*') if p.is_file()), key=lambda p: p.relative_to(folder).as_posix())
 
 
+def single_screen(name: str) -> bool:
+    """The single-screen app and its Windows builder: their LEGAL.md and THIRD-PARTY-NOTICES.md come from
+    packaging/single-screen/ (1.2.1: those downloads name no other edition)."""
+    import re
+    return re.fullmatch(r'FivePocket-[0-9][^-]*(-[a-z0-9.]+)?-android|FivePocket-Builder-[0-9][^-]*(-[a-z0-9.]+)?-windows-x64', name) is not None
+
+
 def stage(work: Path, name: str, readme: str, version: str, payload: dict, extra_readmes=()) -> Path:
     """payload: {name inside the download: source file or folder}; extra_readmes: more packaging/README-*.txt to
     put next to README.txt under their own names (the Mac builder also makes the iOS and Duo apps)."""
@@ -76,6 +83,8 @@ def stage(work: Path, name: str, readme: str, version: str, payload: dict, extra
             shutil.copy2(src, top / inside)
     for item in COMMON:
         src = ROOT / item
+        if single_screen(name) and (ROOT / 'packaging' / 'single-screen' / item).is_file():
+            src = ROOT / 'packaging' / 'single-screen' / item   # (1.2.1: the single-screen downloads name no other edition)
         (shutil.copytree if src.is_dir() else shutil.copy2)(src, top / item)
     for target, template in [('README.txt', readme)] + [(r, r) for r in extra_readmes]:
         text = (ROOT / 'packaging' / template).read_text().replace('{version}', version)

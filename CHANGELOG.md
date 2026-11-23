@@ -4,6 +4,33 @@ One version number covers every edition and every download of a release (the app
 the source archive). Format: [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [1.2.1] - unreleased
+
+Android hotfix (single-screen and Thor Edition) and the Windows builders. **Single-screen players**: install the 1.2.1 app
+over the old one, build your package once more with the 1.2.1 builder and import it. **Thor Edition players**: install the
+1.2.1 app over the old one; your 1.2.0 package keeps working, no rebuild needed.
+
+### Fixed
+- **Importing a new package over the one you have**: a 1.2.0 or 1.1.5 app with game code already installed refused any
+  other package ("already on this device"), so after an update with new game code there was no way forward short of
+  uninstalling, which deletes your saves. Now the new package is read and checked in full first and replaces the old one
+  only when it checks out; your saves and settings are not touched. If anything goes wrong, the game code you had stays.
+
+### Added
+- **Language** (Settings > Display > Language): the game's text and menus in English, Français, Deutsch, Italiano,
+  Español (España), Português, Polski, Русский, 한국어, 中文 or Español (México), from the languages on your own discs.
+  Takes effect at the next game start.
+- **Export Saves** and **Import Saves** (Settings > Save And Restore): Export writes all your saves (Story, Sandbox, Online
+  character) into one file you choose; Import reads such a file, shows what it holds and asks first, and keeps your
+  current saves in the app before it replaces them.
+
+### Changed
+- **Frame-rate counter**: the small, clean counter is back (Settings > Frame Rate > Frame-Rate Counter, off by default), a
+  plain number in the top left corner while the game runs. The old boxy counter stays gone.
+- Single-screen app: its own package from the builder, and no Thor Edition naming anywhere in the app.
+- Windows builders: each edition's output folder holds its app beside its package; the single-screen builder makes the
+  single-screen package.
+
 ## [1.2.0] - 2026-11-17
 
 Android (single-screen and Thor Edition), the Windows builders and the Mac builder for iOS / Duo (new menus; Online

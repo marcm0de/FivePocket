@@ -1,61 +1,49 @@
-# FivePocket {version} — new menus
+# FivePocket {version} — hotfix
 
 **Play the 2013 open-world classic natively on Android and the AYN Thor, from your own Xbox 360 discs.**
 FivePocket is a static recompilation with a new renderer, not an emulator. No game code, data or shaders are in any
 download: the FivePocket Builder makes everything from your own discs, on your own computer.
 
-This release is for Android (FivePocket and the Thor Edition), the Windows builders and the Mac builder for iOS and Duo.
-**iOS / Duo: new menus; Online next update.**
+This hotfix is for Android (FivePocket and the Thor Edition) and the Windows builders. iOS and Duo stay on 1.2.0.
 
-**This update needs new game code.** Run the {version} builder on your discs again and import the new package; the
-{version} app accepts only a {version} package.
+## What you need to do
 
-## New
+| You play on | What to do |
+|---|---|
+| **FivePocket** (single screen) | Install the {version} app over the old one. Build your package once more with the **{version} builder** and import it (Play > Import Game Discs > Install Game Code). |
+| **FivePocket Thor Edition** | Install the {version} app over the old one. Your 1.2.0 package keeps working: no rebuild needed. |
 
-- **New menus**: the launcher is drawn like the game's own Enhanced menus. The Play tab shows its choices as tiles (Story
-  Mode, Sandbox, Online, Verify Game Data, Import Game Discs) over the loading-screen art from your discs; Settings,
-  Controller and About keep the same tab strip on every screen size.
-- **Verify Game Data** and **Import Game Discs** on the Play tab: Verify looks at every game file on the device again,
-  disc by disc; Import opens the setup page (game code and both discs).
-- **Locked until set up**: on a fresh install Story Mode, Sandbox and Online show a padlock and say "Set up the game to
-  unlock." until setup is complete.
-- **Setup pages** in the same frame as the menus, with the same wording on every step.
-- **The game's own fonts**: once your game code is imported, every menu of the app (launcher, settings, setup pages,
-  dialogs, the in-game side menu) uses the game's fonts from your discs. Before that, the app's own font.
-- **Menu sounds**: the launcher plays the game's Select and Back sounds, made by the builder from your discs.
-- **Online** on the Play tab when the game code has it (Thor Edition and single-screen).
-- **Unsupported GPU**: About > Unsupported GPU can let the game try to start on a graphics chip below its minimum (off by
-  default).
-
-## Changed
-
-- Builder (Windows x64 and ARM64): makes the menu fonts, the controller glyphs, the tile pictures and the Select / Back
-  sounds from your discs and puts them into the package.
-- Game library v1922.
+**Do not uninstall first: uninstalling deletes your saves.**
 
 ## Fixed
 
-- A leftover developer frame-rate readout could show up in the corner of the game. It no longer appears.
-- Touch controls (single-screen app): the left stick no longer stays on screen after you lift your finger, open the side
-  menu or switch controllers.
-- Tile captions always fit inside their tiles.
+- **Importing a new package over the one you have.** A 1.2.0 or 1.1.5 app with game code already installed refused any
+  other package ("already on this device"), so after an update with new game code there was no way forward short of
+  uninstalling, which deletes your saves. Now the new package is read and checked in full first and replaces the old one
+  only when it checks out; your saves and settings are not touched. If anything goes wrong, the game code you had stays.
 
-## If you skipped 1.1.5
+## New
 
-1.1.5 was taken down soon after it came out. Its Android and Windows changes are in this release too: Sandbox (free roam
-on its own copy of your story saves), the Online world played offline on the device, Switch Character in Sandbox
-(experimental), Vibration settings on the Thor Edition, the builder window for Windows ("FivePocket Builder.exe"), the
-Interaction Menu button in the touch controls, and the 1.1.5 fixes (explosions, the backup drawing path when the graphics
-driver stops answering, clouds on Mali / Xclipse, beach water, controller right-stick axes, touch camera swipes, online
-purchases kept after a restart). The full list is in CHANGELOG.md.
+- **Language** (Settings > Display > Language): the game's text and menus in English, Français, Deutsch, Italiano,
+  Español (España), Português, Polski, Русский, 한국어, 中文 or Español (México), from the languages on your own discs.
+  Takes effect at the next game start.
+- **Export Saves** and **Import Saves** (Settings > Save And Restore): Export writes all your saves (Story, Sandbox, Online
+  character) into one file you choose; Import reads such a file, shows what it holds and asks first, and keeps your
+  current saves in the app before it replaces them.
+
+## Changed
+
+- **Frame-rate counter**: the small, clean counter is back (Settings > Frame Rate > Frame-Rate Counter, off by default), a
+  plain number in the top left corner while the game runs. The old boxy counter stays gone.
+- Single-screen app: its own package from the builder, and no Thor Edition naming anywhere in the app.
+- Windows builders: each edition's output folder holds its app beside its package; the single-screen builder makes the
+  single-screen package.
 
 ## Known issues
 
-- The other menu sounds (moving up and down or left and right, and the error sound) are not there yet: the game's one-time
-  recording of them does not finish on a fresh install. The menus stay silent for those.
-- The known issues listed for 1.1.5 in CHANGELOG.md that are not marked fixed above still apply (among them: the online
-  clothes shop menu can stay stuck after buying, Deathmatches and other jobs can hang when selected, finishing a race can
-  crash the game).
+- As in 1.2.0 (CHANGELOG.md): the other menu sounds (moving up and down or left and right, and the error sound) are not
+  there yet; the online clothes shop menu can stay stuck after buying; Deathmatches and other jobs can hang when selected;
+  finishing a race can crash the game.
 - Windows: Microsoft Defender can wrongly flag `XenosRecomp.exe` (inside the builder) as "Trojan:Win32/Bearfoos.A!ml" and
   quarantine it, and the build then stops at shader-fixes. It is a false positive on a program built from the open
   source. Restore it from Protection history, allow the builder's folder, and start the build again.
@@ -64,24 +52,15 @@ purchases kept after a restart). The full list is in CHANGELOG.md.
 
 | Edition | Device | How you get it |
 |---|---|---|
-| **FivePocket** | Android 8.0+, arm64 + Vulkan, Snapdragon 8-class or better | `FivePocket-{version}-android.zip` + the builder |
-| **FivePocket Thor Edition** | AYN Thor (dual screen) | `FivePocket-Thor-Edition-{version}-android.zip` + the builder |
-| **FivePocket iOS** | iPhone / iPad, iOS 17.4+ (8 GB devices recommended) | `FivePocket-iOS-Builder-{version}-macos-arm64.zip`: the Mac builder makes the app; you sign it with your Apple ID |
-| **FivePocket Duo** | the Duo (iPhone19,4), iOS 27.2 tested | the same Mac builder; you sign it with your Apple ID |
-
-Builders: the Android editions build on Windows (x86-64, one builder per edition, or the Thor Edition on Windows on ARM);
-the iOS and Duo apps build on a Mac (Apple silicon, Xcode).
-
-## Updating
-
-- Android: install the new app over the old one. **Do not uninstall first: uninstalling deletes your saves.** Rebuild your package
-  with the {version} builder; the {version} app accepts only the {version} package.
-- iOS and Duo: build and sign with the same bundle identifier as before; your imported files and saves stay.
+| **FivePocket** | Android 8.0+, arm64 + Vulkan, Snapdragon 8-class or better | `FivePocket-{version}-android.zip` + `FivePocket-Builder-{version}-windows-x64.zip` |
+| **FivePocket Thor Edition** | AYN Thor (dual screen) | `FivePocket-Thor-Edition-{version}-android.zip` + the Thor Edition builder (x64 or ARM64) |
+| **FivePocket iOS / Duo** | iPhone / iPad / the Duo | stays on 1.2.0: the Mac builder of the 1.2.0 release |
 
 ## Before you start
 
 - You need your own Xbox 360 discs (Disc 1 and Disc 2) as images. FivePocket never downloads game files.
-- **Never share what you build** (disc images, the bundle, the .apk / .ipa you build, game files, saves). See LEGAL.md.
+- **Never share what you build** (disc images, the bundle, the .apk package you build, game files, saves, save exports).
+  See LEGAL.md.
 - FivePocket is free and has no affiliation with the game's publisher or developer, Microsoft, Apple, Google or AYN.
 
 Source: `FivePocket-{version}-source.tar.xz` (GPL-3.0-or-later). Checksums: `SHA256SUMS` and the table below.

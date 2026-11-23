@@ -173,6 +173,28 @@ class Owner(unittest.TestCase):
 
 
 class Packaging(unittest.TestCase):
+    def test_single_screen_downloads_carry_their_own_legal_texts_and_name_no_other_edition(self):
+        # 1.2.1: the single-screen app and its Windows builder take LEGAL.md and THIRD-PARTY-NOTICES.md from
+        # packaging/single-screen/; every other download keeps the shared ones.
+        sys.path.insert(0, str(HERE))
+        import package_release
+        work = Path(tempfile.mkdtemp())
+        try:
+            for name, single in [('FivePocket-1.2.1-android', True), ('FivePocket-Builder-1.2.1-windows-x64', True),
+                                 ('FivePocket-Thor-Edition-1.2.1-android', False), ('FivePocket-Thor-Edition-Builder-1.2.1-windows-x64', False),
+                                 ('FivePocket-Builder-1.2.1-macos-arm64', False), ('FivePocket-iOS-Builder-1.2.1-macos-arm64', False)]:
+                self.assertEqual(package_release.single_screen(name), single, name)
+                top = package_release.stage(work, name, 'README-android.txt', '1.2.1', {})
+                for item in ('LEGAL.md', 'THIRD-PARTY-NOTICES.md'):
+                    text = (top / item).read_text()
+                    want = (package_release.ROOT / ('packaging/single-screen/' + item if single else item)).read_text()
+                    self.assertEqual(text, want, (name, item))
+                    if single:
+                        self.assertNotIn('Thor', text, (name, item))
+            self.assertIn('Thor', (package_release.ROOT / 'LEGAL.md').read_text(), '(control) the shared text names the Thor Edition')
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
     def test_taint_parts_cover_every_file_once_within_the_limit(self):
         sys.path.insert(0, str(HERE))
         import package_release
