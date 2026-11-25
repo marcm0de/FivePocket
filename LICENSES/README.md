@@ -9,6 +9,8 @@
 | `MIT-*.txt` | XenonRecomp, XenosRecomp, SIMDe, {fmt}, toml++, SMOL-V, AMD FSR 1 |
 | `BSD-2-Clause-xxHash.txt`, `BSD-3-Clause-*.txt` | xxHash; Zstandard, Qualcomm GSR 1, Xenia, ReXGlue |
 | `OFL-1.1-Nunito-Sans.txt` | the Nunito Sans font |
+| `MIT-Mesa.txt` | Mesa's Turnip Vulkan driver in the Android edition (Mesa's licence notice, docs/license.rst, and its MIT text) |
+| `BSD-2-Clause-libadrenotools.txt` | libadrenotools and liblinkernsbypass in the Android edition (the same BSD 2-Clause text in both) |
 | `Unlicense-tiny-AES-c.txt`, `TinySHA1-notice.txt`, `GPL-2.0-or-later-binutils-ppc-dis-notice.txt` | parts inside XenonRecomp |
 | `MinGW-w64-runtime.txt`, `MinGW-w64-winpthreads.txt` | runtime of the Windows builder programs |
 | `BSD-3-Clause-cereal.txt` | cereal, built into MoltenVK (iOS and Duo apps); SPIRV-Cross and SPIRV-Tools there are under `Apache-2.0.txt` |

@@ -14,6 +14,10 @@ Nothing listed here is the game. The game's code and data come only from the pla
 | AMD FidelityFX Super Resolution 1 | shaders in the game library (section 2) | MIT | `LICENSES/MIT-AMD-FidelityFX-FSR1.txt` |
 | Android NDK C++ runtime (libc++, libunwind) | `lib/arm64-v8a/*.so` | Apache License 2.0 with LLVM Exceptions | `LICENSES/Apache-2.0-WITH-LLVM-exception.txt` |
 | Gradle wrapper (source tree only, not in the APK) | `android/gradle/wrapper/` | Apache License 2.0 | `LICENSES/Apache-2.0.txt` |
+| Turnip Vulkan driver (Mesa 26.3.1), Android edition only | `lib/arm64-v8a/libvulkan_freedreno.so` | MIT (Mesa's licence notice and MIT text) | `LICENSES/MIT-Mesa.txt` |
+| libadrenotools and liblinkernsbypass (Billy Laws), Android edition only | `lib/arm64-v8a/` | BSD 2-Clause | `LICENSES/BSD-2-Clause-libadrenotools.txt` |
+
+The Android edition of the app (not the Thor edition) contains Mesa's Turnip Vulkan driver for Adreno GPUs (libvulkan_freedreno.so, Mesa 26.3.1, https://mesa3d.org, built by this project with its ir3 patch), which it uses on the Adreno 730, and libadrenotools (https://github.com/bylaws/libadrenotools) with liblinkernsbypass (https://github.com/bylaws/liblinkernsbypass), which load it.
 
 The app shows these notices, the GPL notice and the address of the source code (https://github.com/marcm0de/FivePocket) on its About page.
 
@@ -33,6 +37,8 @@ publishers.
 | XenonRecomp support header `ppc_context.h` (hedge-dev and contributors) | MIT | `LICENSES/MIT-XenonRecomp.txt` |
 | SIMDe (Evan Nemerson and contributors) | MIT | `LICENSES/MIT-SIMDe.txt` |
 | Android NDK runtime | Apache 2.0 with LLVM Exceptions | `LICENSES/Apache-2.0-WITH-LLVM-exception.txt` |
+
+FFmpeg: One file is changed by this project: libavcodec/wmaprodec.c gains a flush callback for the raw-frames XMA decoder, so that a flushed decoder starts the next sound as a newly opened one does. The whole change is tools/own_disc/xma_decoder/cor02/xmaframes-flush.patch in the builder; the changed file is beside it.
 
 Because the player builds the library from source on their own machine, the LGPL's relinking terms are met by the
 sources and build scripts in this repository and in the builder download.

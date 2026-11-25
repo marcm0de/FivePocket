@@ -24,7 +24,7 @@ NEW IN THIS UPDATE
 - Touch controls: in the online world, a button in the top row opens the game's Interaction Menu with one tap.
 - This version asks Android for the vibration permission; there is no prompt.
 - Rebuild your package with this version's builder to get the new features.
-- Updating from 1.1.0-alpha.1: install this app over the old one. Do not uninstall first: uninstalling deletes your
+- Updating from 1.2.x: install this app over the old one. Do not uninstall first: uninstalling deletes your
   saves.
 
 NEVER SHARE WHAT YOU BUILD

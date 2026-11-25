@@ -31,7 +31,7 @@ NEW IN THIS UPDATE
 - Vibration (Settings > Controls): Off, Light or Full. This version asks Android for the vibration permission;
   there is no prompt.
 - Rebuild your package with this version's builder to get the new features.
-- Updating from 1.1.0-alpha.1: install this app over the old one. Do not uninstall first: uninstalling deletes your
+- Updating from 1.2.x: install this app over the old one. Do not uninstall first: uninstalling deletes your
   saves.
 
 NEVER SHARE WHAT YOU BUILD
