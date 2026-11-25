@@ -21,8 +21,7 @@ deletes its saves. Copy your saves out first.
 
 NEW IN THIS UPDATE
 ------------------
-- Title Update 27 and Online in the same app: the builder also makes a title-update package from your own
-  title-update file (and DLC packs, if you have them). Online keeps your character, rank, cash and stats.
+- Title Update 27 / Online bundles: the builder support comes in a follow-up update; 1.3.0 builders make 1.0 bundles.
 - App icon choice and launcher menu music (made by the builder from your discs).
 - Fixes: disc copy no longer closed by Android on low memory; no repeated "Preparing menu sounds"; Online cash
   kept when saving during loading; merged game fixes from the 1.2.x line.

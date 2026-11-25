@@ -19,10 +19,7 @@ A new package replaces the old one only after it has been checked in full; your 
 
 ## New
 
-- **Title Update 27 and Online, in the same app.** Give the builder your own title-update file (and, if you have them,
-  your own DLC packs) and it makes a title-update package as well; the app runs either package. Online keeps your
-  character, rank, cash, purchases, look and stats on your own device, across restarts. Online unlocks once you have a
-  Story save (or import one in Settings > Save And Restore).
+- **Title Update 27 / Online bundles: the builder support comes in a follow-up update; 1.3.0 builders make 1.0 bundles.**
 - **Turnip graphics driver** on Adreno 730 phones (Galaxy Z Fold4 / Flip4 class), on by default: measured about 4-7 %
   more frames per second on a busy street. Other phones keep their own driver. (FivePocket single-screen app only.)
 - **App icon**: choose one of three colourways in the builder, or later in Settings.
@@ -41,6 +38,7 @@ A new package replaces the old one only after it has been checked in full; your 
 ## Known issues
 
 - On a fresh install, "Preparing menu sounds" can wait up to about 4 minutes once (also in 1.2.x).
+- Title Update 27 Online: trainer actions are unavailable for now (fix coming in a hotfix); they work in story mode and in 1.0 Online.
 - As in 1.2.x (CHANGELOG.md): some menu sounds are missing; the online clothes shop menu can stay stuck after buying;
   Deathmatches and other jobs can hang when selected; finishing a race can crash the game.
 - Windows: Microsoft Defender can wrongly flag `XenosRecomp.exe` (inside the builder) as "Trojan:Win32/Bearfoos.A!ml".
