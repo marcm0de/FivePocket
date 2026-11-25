@@ -44,14 +44,14 @@ final class UiKit {
         final Typeface game;
         /** M6: the disc's condensed face (Scene.GAME_COND), or null. */
         final Typeface gameCond;
-        /** 1.2.1 (Language row): the characters each disc face has, or null when unknown (then the face is kept for any text). */
+        /** 2026-11-22 (Language row): the characters each disc face has, or null when unknown (then the face is kept for any text). */
         final FontCoverage gameCover, condCover;
         /** The game's own controller glyphs (Scene.IMAGE), by file name; empty when they were not imported. */
         final java.util.Map<String, Bitmap> glyphs = new java.util.HashMap<String, Bitmap>();
         /** The disc's loading-screen art (Scene.backdropArt), or null when it was not imported. */
         final Bitmap art;
 
-        Faces(AssetManager assets, File filesDir) {
+        Faces(AssetManager assets, File filesDir, android.content.res.Resources resources, String packageName) {
             regular = load(assets, WEIGHT_REGULAR, Typeface.create("sans-serif", Typeface.NORMAL));
             bold = load(assets, WEIGHT_BOLD, Typeface.create("sans-serif", Typeface.BOLD));
             heavy = load(assets, WEIGHT_HEAVY, Typeface.create("sans-serif-black", Typeface.BOLD));
@@ -86,6 +86,22 @@ final class UiKit {
                     if (bitmap != null) glyphs.put(tile, bitmap);
                 } catch (java.io.IOException | RuntimeException | OutOfMemoryError absent) {
                     // not in this APK: the plain ground
+                }
+            }
+            // 2026-11-22: the App icon row's previews, the launcher icons' own foregrounds (the owner's logos), cropped to the logo
+            // (looked up by name, not through R, so that the host tests that compile this class need no generated R)
+            for (int i = 0; i < AppIcon.IDS.length && resources != null; ++i) {
+                try {
+                    int id = resources.getIdentifier("ic_launcher_fg_" + AppIcon.IDS[i].replace('-', '_'), "mipmap", packageName);
+                    if (id == 0) continue;
+                    BitmapFactory.Options unscaled = new BitmapFactory.Options();
+                    unscaled.inScaled = false;
+                    Bitmap full = BitmapFactory.decodeResource(resources, id, unscaled);
+                    if (full == null) continue;
+                    int side = Math.round(full.getWidth() * 218f / 432f), at = (full.getWidth() - side) / 2;
+                    glyphs.put(AppIcon.PICTURES[i], Bitmap.createBitmap(full, at, at, side, side));
+                } catch (RuntimeException | OutOfMemoryError unreadable) {
+                    // that row shows its value without the picture
                 }
             }
             for (String glyph : new String[] {"A", "B", "X", "Y", "LB", "RB", "LT", "RT", "START", "BACK"}) {
@@ -148,9 +164,9 @@ final class UiKit {
         }
 
         /**
-         * pick() for one text (1.2.1, the Language row): the disc's menu font (font_lib_efigs) has Latin and Cyrillic but no Korean or
-         * Chinese, so a text with a character the picked disc face lacks is drawn in the condensed face's sibling when that one has it,
-         * else in the app's own face for the style (the bundled face, whose fallback is the system's fonts). Pure.
+         * pick() for one text (2026-11-22, the Language row): the disc's menu font (font_lib_efigs) has Latin and Cyrillic but no
+         * Korean or Chinese, so a text with a character the picked disc face lacks is drawn in the condensed face's sibling when that
+         * one has it, else in the app's own face for the style (the bundled face, whose fallback is the system's fonts). Pure.
          */
         static int pick(int face, boolean hasGame, boolean hasCond, boolean gameCovers, boolean condCovers) {
             int picked = pick(face, hasGame, hasCond);
@@ -163,7 +179,8 @@ final class UiKit {
 
         /** One set per process (a Typeface is immutable and the file is read once). */
         static synchronized Faces get(Context context) {
-            if (shared == null) shared = new Faces(context.getApplicationContext().getAssets(), context.getApplicationContext().getFilesDir());
+            if (shared == null) shared = new Faces(context.getApplicationContext().getAssets(), context.getApplicationContext().getFilesDir(),
+                    context.getApplicationContext().getResources(), context.getApplicationContext().getPackageName());
             return shared;
         }
     }

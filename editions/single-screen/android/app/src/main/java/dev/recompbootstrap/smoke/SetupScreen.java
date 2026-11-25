@@ -361,6 +361,13 @@ final class SetupScreen implements Screen {
                     if (in == null) throw new IOException("the file cannot be opened");
                     try {
                         outcome[0] = CodeBundleImporter.importBundle(in, gameInstall, progress);
+                        if (outcome[0].complete) {   // the builder's logo pick (2026-11-22)
+                            AppIcon.afterActivation(host.activity().getApplicationContext(), new SettingsStore.GameRunning() {
+                                @Override public boolean check() {
+                                    return host.gameRunning();
+                                }
+                            }, SettingsScreen.inputOptionInApp());
+                        }
                     } finally {
                         closeQuietly(in);
                     }

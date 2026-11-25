@@ -654,12 +654,136 @@ final class MoreNotices {
             + "FFmpeg is free software under the GNU Lesser General Public License, version 2.1 or later; the full text of\n"
             + "version 2.1 is at the end of these notices. You may obtain the source code of the FFmpeg libraries used here,\n"
             + "change them and use your changed version with the game code. FFmpeg is a trademark of Fabrice Bellard,\n"
-            + "originator of the FFmpeg project. This app is not part of FFmpeg and is not endorsed by it.\n";
+            + "originator of the FFmpeg project. This app is not part of FFmpeg and is not endorsed by it.\n"
+            + MoreNotices.FFMPEG_CHANGE;
+    /** 1.3.0 (COR-02; builder notices/game-library-parts.md): the LGPL 2.1 section 2a notice of the one changed FFmpeg file. It must
+     *  name the file, so ShipWordsTest lifts it out with the licence texts before its no-source-file rule reads the rest. */
+    static final String FFMPEG_CHANGE = "One file is changed by this project: libavcodec/wmaprodec.c gains a flush callback for the raw-frames XMA\n"
+            + "decoder, so that a flushed decoder starts the next sound as a newly opened one does. The whole change is\n"
+            + "tools/own_disc/xma_decoder/cor02/xmaframes-flush.patch in the builder; the changed file is beside it.\n";
     static final String NDK_WORDS = "Android NDK runtime libraries\n"
             + "The C++ runtime this app carries. Part of the LLVM project (https://llvm.org); licensed under the Apache\n"
             + "License, Version 2.0, with LLVM Exceptions.\n";
 
     /** The notices after AMD's and Qualcomm's, in the order of the notices file. */
+
+    // Turnip (lead 2026-11-24): the Android edition's public build carries Mesa's Turnip driver and libadrenotools (docs/alpha/LICENCES.md
+    // section 8); their licence texts, word for word as the notices file and the APK's assets/licenses/ hold them.
+    /** Mesa's licence notice (docs/license.rst of Mesa 26.3.1). */
+    static final String MESA_NOTICE = ""
+            + "License and Copyright\n"
+            + "=====================\n"
+            + "\n"
+            + "Disclaimer\n"
+            + "----------\n"
+            + "\n"
+            + "Mesa implements various APIs, including `OpenGL`_, `OpenGL ES`_,\n"
+            + "`Vulkan`_ and `OpenCL`_. Even though Mesa implements these APIs, the\n"
+            + "implementation isn't formally conformant on all combinations of drivers\n"
+            + "and hardware. `Khronos`_ maintains lists of conformant implementations\n"
+            + "for each of their APIs, as well as `trademark details`_.\n"
+            + "\n"
+            + "This project is called *Mesa*, *Mesa3D*, or *The Mesa 3-D graphics library*.\n"
+            + "\n"
+            + ".. _OpenGL: https://www.opengl.org/\n"
+            + ".. _OpenGL ES: https://www.khronos.org/opengles/\n"
+            + ".. _Vulkan: https://www.vulkan.org/\n"
+            + ".. _OpenCL: https://www.khronos.org/opencl/\n"
+            + ".. _Khronos: https://www.khronos.org/\n"
+            + ".. _trademark details: https://www.khronos.org/legal/trademarks/\n"
+            + "\n"
+            + "License / Copyright Information\n"
+            + "-------------------------------\n"
+            + "\n"
+            + "The Mesa distribution consists of several components. Different\n"
+            + "copyrights and licenses apply to different components. For example, the\n"
+            + "GLX client code uses the SGI Free Software License B, and some of the\n"
+            + "Mesa device drivers are copyrighted by their authors. See below for a\n"
+            + "list of Mesa's main components and the license for each.\n"
+            + "\n"
+            + "The core Mesa library is licensed according to the terms of the MIT\n"
+            + "license.\n"
+            + "\n"
+            + "Most of the Mesa code is licensed under MIT license,\n"
+            + "but individual files may have their own licenses.\n"
+            + "\n"
+            + "You may find all the licenses used within this project in the licenses/ directory.\n"
+            + "\n"
+            + "Attention, Contributors\n"
+            + "-----------------------\n"
+            + "\n"
+            + "When contributing to the Mesa project you must agree to the licensing\n"
+            + "terms of the component to which you're contributing. The following\n"
+            + "section lists the primary components of the Mesa distribution and their\n"
+            + "respective licenses.\n"
+            + "\n"
+            + "Mesa Component Licenses\n"
+            + "-----------------------\n"
+            + "\n"
+            + "In general, consult each source file SPDX identifier for license terms.\n";
+    /** Mesa's MIT licence (licenses/MIT of Mesa 26.3.1). */
+    static final String MESA_MIT = ""
+            + "Valid-License-Identifier: MIT\n"
+            + "SPDX-URL: https://spdx.org/licenses/MIT.html\n"
+            + "Usage-Guide:\n"
+            + "  To use the MIT License put the following SPDX tag/value pair into a\n"
+            + "  comment according to the placement guidelines in the licensing rules\n"
+            + "  documentation:\n"
+            + "    SPDX-License-Identifier: MIT\n"
+            + "License-Text:\n"
+            + "\n"
+            + "MIT License\n"
+            + "\n"
+            + "Copyright (c) <year> <copyright holders>\n"
+            + "\n"
+            + "Permission is hereby granted, free of charge, to any person obtaining a\n"
+            + "copy of this software and associated documentation files (the \"Software\"),\n"
+            + "to deal in the Software without restriction, including without limitation\n"
+            + "the rights to use, copy, modify, merge, publish, distribute, sublicense,\n"
+            + "and/or sell copies of the Software, and to permit persons to whom the\n"
+            + "Software is furnished to do so, subject to the following conditions:\n"
+            + "\n"
+            + "The above copyright notice and this permission notice shall be included in\n"
+            + "all copies or substantial portions of the Software.\n"
+            + "\n"
+            + "THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n"
+            + "IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n"
+            + "FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n"
+            + "AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n"
+            + "LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING\n"
+            + "FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER\n"
+            + "DEALINGS IN THE SOFTWARE.\n";
+    /** libadrenotools' and liblinkernsbypass' BSD 2-Clause licence (the same text in both). */
+    static final String ADRENOTOOLS_BSD2 = ""
+            + "BSD 2-Clause License\n"
+            + "\n"
+            + "Copyright (c) 2021, Billy Laws\n"
+            + "\n"
+            + "Redistribution and use in source and binary forms, with or without\n"
+            + "modification, are permitted provided that the following conditions are met:\n"
+            + "\n"
+            + "1. Redistributions of source code must retain the above copyright notice, this\n"
+            + "   list of conditions and the following disclaimer.\n"
+            + "\n"
+            + "2. Redistributions in binary form must reproduce the above copyright notice,\n"
+            + "   this list of conditions and the following disclaimer in the documentation\n"
+            + "   and/or other materials provided with the distribution.\n"
+            + "\n"
+            + "THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \"AS IS\"\n"
+            + "AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE\n"
+            + "IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE\n"
+            + "DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE\n"
+            + "FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL\n"
+            + "DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR\n"
+            + "SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER\n"
+            + "CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,\n"
+            + "OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE\n"
+            + "OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.\n";
+    static final String TURNIP_WORDS = "Turnip Vulkan driver (Mesa) and libadrenotools\n"
+            + "On the Adreno 730 the game runs on Mesa's Turnip Vulkan driver, loaded by libadrenotools.\n"
+            + "Source: https://mesa3d.org, https://github.com/bylaws/libadrenotools, https://github.com/bylaws/liblinkernsbypass\n\n"
+            + MESA_NOTICE + "\n" + MESA_MIT + "\n" + ADRENOTOOLS_BSD2;
+
     static String more() {
         return "Xenia\nParts of the game's audio handling and of its graphics helpers are adapted from Xenia.\n"
                 + "Source: https://github.com/xenia-project/xenia\n\n" + XENIA
@@ -671,6 +795,7 @@ final class MoreNotices {
                 + RULE + "SIMDe\nUsed by XenonRecomp's support code.\n"
                 + "Source: https://github.com/simd-everywhere/simde\n\n" + SIMDE
                 + RULE + NDK_WORDS
+                + RULE + TURNIP_WORDS
                 + RULE + "GNU Lesser General Public License, version 2.1\n\n" + LGPL21;
     }
 

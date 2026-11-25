@@ -80,10 +80,22 @@ final class ShipDataManifest {
         return ShipFiles.isSha256(hash) ? hash : null;
     }
 
-    /** null when path has one of the three shapes of the game data layout; else why not. */
+    /**
+     * One app, two pinned profiles (TU27, 2026-11-24): a title update's shader supplement lies under the one name its game library opens,
+     * inputs/(w)-shaders/generic-shaders-(w)-(16 hex).bin. Like inputs/(sha256).bin it is named by its content: the 16 hex digits are
+     * the start of its SHA-256 (checked wherever it is pinned or listed). Returns those 16 digits, or null for any other path.
+     */
+    static String supplementHashPrefix(String path) {
+        java.util.regex.Matcher m = SUPPLEMENT.matcher(path == null ? "" : path);
+        return m.matches() && m.group(1).equals(m.group(2)) ? m.group(3) : null;
+    }
+    private static final java.util.regex.Pattern SUPPLEMENT =
+            java.util.regex.Pattern.compile("inputs/([a-z0-9]{1,16})-shaders/generic-shaders-([a-z0-9]{1,16})-([0-9a-f]{16})\\.bin");
+
+    /** null when path has one of the shapes of the game data layout; else why not. */
     static String pathProblem(String path) {
         if (path == null || path.isEmpty()) return "an entry has no path";
-        if (IMAGE.equals(path) || inputHash(path) != null) return null;
+        if (IMAGE.equals(path) || inputHash(path) != null || supplementHashPrefix(path) != null) return null;
         if (path.startsWith(BOOT_MODULES)) {
             String[] parts = path.substring(BOOT_MODULES.length()).split("/", -1);
             if (parts.length > MAX_MODULE_DEPTH) return "it lies too deep under " + BOOT_MODULES;
@@ -166,8 +178,8 @@ final class ShipDataManifest {
                 throw unusable(name + " has no usable size");
             }
             if (!(sha instanceof String) || !ShipFiles.isSha256((String) sha)) throw unusable(name + " has no SHA-256 of 64 hex digits");
-            String named = inputHash(name);
-            if (named != null && !named.equals(sha)) {
+            String named = inputHash(name), prefix = supplementHashPrefix(name);
+            if ((named != null && !named.equals(sha)) || (prefix != null && !((String) sha).startsWith(prefix))) {
                 throw unusable(name + " is listed with another SHA-256 than its name");
             }
             entries.add(new Entry(name, ((Long) size).longValue(), (String) sha));

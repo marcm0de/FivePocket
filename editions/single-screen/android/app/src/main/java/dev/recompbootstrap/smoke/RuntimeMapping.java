@@ -67,6 +67,9 @@ final class RuntimeMapping {
     static final String FSR1_STOPS = "private-trace/diag-v450-fsr1-stops"; // value: stops (builds without fsr-sharpness.txt)
     static final String FPS_OVERLAY = "private-trace/diag-fps-overlay";    // switch: frame-rate counter
     static final String INPUT_UNBUFFERED = "private-trace/diag-lt2-unbuffered"; // switch read by the app's game activity
+    /** Next update: the DLC switch, read by the app's launcher (LaunchRequest -> DlcPacks.apply). v1922's pack-order rule is default-on,
+     *  so no second switch is needed. */
+    static final String DLC_PACKS = DlcPacks.SWITCH;
     static final String TOUCH_CONTROLS_TXT = "settings/touch-controls.txt"; // words read by the app's game activity (QolTouch): touch-controls
     static final String SCREEN_TXT = "settings/screen.txt"; // "fill", read by the app's game activity (ScreenFill): qol-fill
     static final String MODS_TXT = "settings/mods.txt"; // "scripts=on", read by the library when it starts (trainer-mods' script_mods.h)
@@ -74,6 +77,9 @@ final class RuntimeMapping {
     static final String HAPTICS_TXT = HapticsWords.FILE; // "mode=off" / "mode=full" (Light: no mode word; other words kept), read by the app's game window (Haptics): Update 1
     /** Update 1 P6 My Music: "mode=everywhere volume=80 order=shuffle" (MyMusicSettings.words), read by this app's game window. */
     static final String MY_MUSIC_TXT = "settings/my-music.txt";
+    /** 2026-11-22 app icon: one word of AppIcon.IDS (no file = Pink/Blue Dusk), read by this app (AppIcon.reconcile). */
+    static final String APP_ICON_TXT = AppIcon.FILE;
+    static final String MENU_MUSIC_TXT = MenuMusic.FILE; // "off" when Menu music is off (on, the default: no file), read by the launcher (next update)
 
     /**
      * NOT on the fixed list, only looked at: the developer switch that selects Snapdragon GSR 1 (v461). A build that
@@ -90,7 +96,7 @@ final class RuntimeMapping {
      * Files of the app's own (touch-controls), written by plan() like the setting files but never looked for in the game library
      * (no game build reads them, so they are not runtime files and not probe names).
      */
-    private static final List<String> APP_FILES = Collections.unmodifiableList(Arrays.asList(TOUCH_CONTROLS_TXT, SCREEN_TXT, HAPTICS_TXT, MY_MUSIC_TXT, MenuWords.FILE, MenuWords.QUICK_FILE));   // (Update 1: one list, haptics, My Music, the side menu's menu.txt and quick-menu.txt: owned, never in the plan)
+    private static final List<String> APP_FILES = Collections.unmodifiableList(Arrays.asList(TOUCH_CONTROLS_TXT, SCREEN_TXT, HAPTICS_TXT, MY_MUSIC_TXT, MenuWords.FILE, MenuWords.QUICK_FILE, DLC_PACKS, APP_ICON_TXT, MENU_MUSIC_TXT));   // (Update 1: one list, haptics, My Music, the side menu's menu.txt and quick-menu.txt: owned, never in the plan)
     /**
      * Developer test files of the world sliders (world_load.h). A stopped A/B script leaves one behind; the game
      * ignores a file that was there when it started, so removing a leftover changes no picture. Only ever removed.
@@ -264,7 +270,7 @@ final class RuntimeMapping {
             want.put(MODS_TXT, ModsWords.parse(files.exists(MODS_TXT) ? content(files, MODS_TXT) : null).withScripts(modsOn).render());
         }
 
-        // The game's language (1.2.1): the word, for a build that reads the file; English, the default, is no file.
+        // The game's language (2026-11-22): the word, for a build that reads the file; English, the default, is no file.
         if (capabilities.reads(LANGUAGE_TXT)) {
             want.put(LANGUAGE_TXT, GameLanguage.content(capabilities.effective(SettingsSchema.LANGUAGE, settings.get(SettingsSchema.LANGUAGE))));
         }
@@ -277,6 +283,8 @@ final class RuntimeMapping {
 
         // The input switch is read by the app's own game activity, whatever the game library is.
         want.put(INPUT_UNBUFFERED, capabilities.effective(SettingsSchema.INPUT_UNBUFFERED, settings.get(SettingsSchema.INPUT_UNBUFFERED)) == 1 ? SWITCH : null);
+        // next update: the DLC switch, read by the app's launcher (off, or a library without the STFS device: no file)
+        want.put(DLC_PACKS, capabilities.effective(SettingsSchema.DLC_PACKS, settings.get(SettingsSchema.DLC_PACKS)) == 1 ? SWITCH : null);
 
         // The touch controls' words, read by the app's own game activity (QolTouch / TouchPad.settings); all at their defaults = no file.
         want.put(TOUCH_CONTROLS_TXT, touchWords(settings, capabilities));
@@ -287,6 +295,11 @@ final class RuntimeMapping {
         String haptics = HapticsWords.words(capabilities.effective(SettingsSchema.HAPTICS, settings.get(SettingsSchema.HAPTICS)),
                 files.exists(HAPTICS_TXT) ? content(files, HAPTICS_TXT) : null); // (other words of the file are kept)
         want.put(HAPTICS_TXT, haptics == null ? null : text(haptics));
+        // 2026-11-22 app icon: the app's own word file, whatever the game library is (Pink/Blue Dusk, the default, is no file)
+        String icon = AppIcon.word(capabilities.effective(SettingsSchema.APP_ICON, settings.get(SettingsSchema.APP_ICON)));
+        want.put(APP_ICON_TXT, icon == null ? null : text(icon));
+        // next update: the launcher music switch (on, the default, is no file)
+        want.put(MENU_MUSIC_TXT, MenuMusic.content(capabilities.effective(SettingsSchema.MENU_MUSIC, settings.get(SettingsSchema.MENU_MUSIC))));
 
         for (String leftover : REMOVE_ONLY) want.put(leftover, null);
 
@@ -362,6 +375,7 @@ final class RuntimeMapping {
 
         // the input switch is read by the app, not by the game library
         settings = supported(settings, capabilities, SettingsSchema.INPUT_UNBUFFERED, files.exists(INPUT_UNBUFFERED) ? 1 : 0);
+        settings = supported(settings, capabilities, SettingsSchema.DLC_PACKS, files.exists(DLC_PACKS) ? 1 : 0); // (next update)
         // so are the touch controls' words
         if (files.exists(TOUCH_CONTROLS_TXT)) {
             int[] touch = parseTouch(content(files, TOUCH_CONTROLS_TXT));
@@ -376,7 +390,7 @@ final class RuntimeMapping {
             boolean mods = ModsWords.parse(word).scripts;   // (Update 1: every spelling the library reads as on, with the page's words beside it)
             settings = supported(settings, capabilities, SettingsSchema.SCRIPT_MODS, mods ? 1 : 0);
         }
-        if (capabilities.reads(LANGUAGE_TXT)) {   // (1.2.1: what the game will use; no file = English)
+        if (capabilities.reads(LANGUAGE_TXT)) {   // (2026-11-22: what the game will use; no file = English)
             settings = supported(settings, capabilities, SettingsSchema.LANGUAGE,
                     GameLanguage.parse(files.exists(LANGUAGE_TXT) ? content(files, LANGUAGE_TXT) : null));
         }
@@ -396,6 +410,10 @@ final class RuntimeMapping {
         }
         // Update 1 haptics: read by the app, not by the game library
         settings = supported(settings, capabilities, SettingsSchema.HAPTICS, HapticsWords.parse(files.exists(HAPTICS_TXT) ? content(files, HAPTICS_TXT) : null));
+        // 2026-11-22 app icon: read by the app
+        settings = supported(settings, capabilities, SettingsSchema.APP_ICON, AppIcon.parse(files.exists(APP_ICON_TXT) ? content(files, APP_ICON_TXT) : null));
+        // next update: the launcher music switch, read by the app
+        settings = supported(settings, capabilities, SettingsSchema.MENU_MUSIC, MenuMusic.enabled(files.exists(MENU_MUSIC_TXT) ? content(files, MENU_MUSIC_TXT) : null) ? 1 : 0);
         return settings;
     }
 

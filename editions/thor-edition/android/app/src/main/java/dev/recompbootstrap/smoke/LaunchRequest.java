@@ -382,6 +382,7 @@ final class LaunchRequest {
         byte[] arguments;
         try {
             arguments = rewriteArguments(template, templateId, id);
+            arguments = DlcPacks.apply(arguments, new File(filesDir, DlcPacks.SWITCH).isFile(), root);   // next update: the player's own DLC (off by default)
         } catch (IllegalArgumentException refused) {
             return failed(refused.getMessage());
         }

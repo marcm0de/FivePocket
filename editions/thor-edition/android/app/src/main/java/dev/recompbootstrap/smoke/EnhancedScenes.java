@@ -510,6 +510,13 @@ final class EnhancedScenes {
                             row.canRight ? SELECT_TEXT : FAINT_ON_SELECT);
                 }
             }
+            if (row.art != null) {   // 2026-11-22: the App icon row's logo, square and as tall as the bar, before the value
+                float x = labelRight + LABEL_PAD - BAR;
+                if (x > labelLeft + labelWidth + 2 * LABEL_PAD) {
+                    scene.image(row.art, x, top, BAR, BAR);
+                    labelRight = x - 2 * LABEL_PAD;
+                }
+            }
         }
         scene.textExact(Scene.fit(row.label, ty.row, ty.face, labelRight - labelLeft, measure), labelLeft, top + ty.rowShift, labelRight - labelLeft,
                 BAR, ty.row, ty.face, Scene.LEFT, ink);

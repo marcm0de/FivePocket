@@ -57,6 +57,7 @@ final class CapabilityScanner {
         names.add(Capabilities.CHARACTER_MAIN_WORD); // (Thor edition, thor-char)
         names.add(Capabilities.PHONE_MAIN_WORD); // (Thor edition, thor-radio v826)
         names.add(Capabilities.MY_MUSIC_MARKER); // (Update 1 P6: My Music)
+        names.add(Capabilities.STFS_MARKER); // (next update: the player's own DLC)
         return Collections.unmodifiableList(names);
     }
 

@@ -40,8 +40,13 @@ final class JsonLite {
      * Rejects: text after the value, duplicate keys in one object, nesting deeper than 32, text longer than 1 MiB.
      */
     static Object parse(String text) throws ParseException {
+        return parse(text, MAX_LENGTH);
+    }
+
+    /** As parse(text), with its own length limit in characters (the save export's manifest: SaveArchive.MAX_MANIFEST_BYTES). */
+    static Object parse(String text, int maxLength) throws ParseException {
         if (text == null) throw new ParseException("no text", 0);
-        if (text.length() > MAX_LENGTH) throw new ParseException("text longer than 1 MiB", MAX_LENGTH);
+        if (text.length() > maxLength) throw new ParseException("text longer than " + (maxLength == MAX_LENGTH ? "1 MiB" : maxLength + " characters"), maxLength);
         JsonLite parser = new JsonLite(text);
         parser.blanks();
         Object value = parser.value(1);

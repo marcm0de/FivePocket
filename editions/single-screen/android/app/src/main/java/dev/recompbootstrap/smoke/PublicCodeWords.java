@@ -8,12 +8,20 @@ final class PublicCodeWords {
     static final String APP_RECORD = "This app's game record cannot be read. Install the app again over this copy.";
     static final String VERSION = "This code bundle is for another app version. Make a bundle for this version on your computer.";
     static final String GAME = "This code bundle is for another release of the game. Make it from the supported discs.";
+    /** Route A (lead 2026-11-24): a title update's bundle whose base program is not the supported play disc's. */
+    static final String TITLE_UPDATE_BASE = "This code bundle updates another release of the game. Make it from the supported discs.";
+    /** A bundle for an updated game program that does not name the disc program it updates (an older builder). */
+    static final String TITLE_UPDATE_NO_BASE = "This code bundle does not name the game disc it updates. Make it again with the current builder.";
+    /** The bundle screen's quiet line while the installed bundle carries an older builder's piece (lead 2026-11-24). */
+    static final String OLDER_BUILDER = "Rebuild with the new builder for the intro-movie fix.";
     static final String COMPONENTS = "This code bundle is missing a required part. Make a complete bundle on your computer.";
     static final String EXTRA = "This code bundle contains an unexpected part. Make a bundle for this app version.";
     static final String DIFFERENT = "A part of this code bundle does not match this app's game record. Make a bundle for this version.";
     static final String SEAL = "The installed bundle's seal is missing or damaged. Your imported files were kept.";
     static final String CHANGED = "An imported game code file is missing or changed. Your other files were kept.";
     static final String BUSY = "Another copy or import is running. Wait until it finishes, then try again.";
+    /** Next update: the bundle's TU or DLC parts could not be moved into the game's folders (CodeBundleImporter.placeExtras). */
+    static final String EXTRAS = "The game code is in place, but its title update or DLC could not be put where the game reads them. Open the app again to finish.";
     static final String RUNNING = "The game is running. Close it before installing game code.";
     static final String NOT_CHOSEN = "No file was chosen. Choose Install Game Code to open the file picker again.";
     static final String PICKER = "This device has no file picker. Install one to choose your code bundle.";
@@ -37,7 +45,8 @@ final class PublicCodeWords {
         if (result.cancelled) return STOPPED;
         if (result.complete) return INSTALLED;
         // Our contract's individual refusals already have player-facing words.
-        for (String text : new String[]{APP_RECORD, VERSION, GAME, COMPONENTS, EXTRA, DIFFERENT, SEAL, CHANGED, RUNNING})
+        for (String text : new String[]{APP_RECORD, VERSION, GAME, TITLE_UPDATE_BASE, TITLE_UPDATE_NO_BASE, COMPONENTS, EXTRA, DIFFERENT, SEAL,
+                CHANGED, RUNNING, EXTRAS})
             if (text.equals(result.error)) return text;
         switch (result.problem) {
             case BUSY: return BUSY;
@@ -66,7 +75,7 @@ final class PublicCodeWords {
     }
 
     static String launch(String reason) {
-        for (String known : new String[]{MISSING, VERSION, GAME, COMPONENTS, EXTRA, DIFFERENT, SEAL, CHANGED})
+        for (String known : new String[]{MISSING, VERSION, GAME, TITLE_UPDATE_BASE, TITLE_UPDATE_NO_BASE, COMPONENTS, EXTRA, DIFFERENT, SEAL, CHANGED})
             if (known.equals(reason)) return known;
         if (reason != null && reason.startsWith(ShipPlay.DATA_MISSING_PREFIX))
             return "Some disc files are missing or changed. Open Copy Disc Files to check them.";

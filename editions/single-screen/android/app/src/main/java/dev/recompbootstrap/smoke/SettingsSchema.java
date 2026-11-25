@@ -45,9 +45,17 @@ final class SettingsSchema {
             // Update 1 haptics (P2): the game's rumble on the device's motor and the on-screen buttons' tick; settings/haptics.txt, read
             // by the app's game window (Haptics); values RumbleMapper.OFF / LIGHT / FULL.
             HAPTICS = "haptics",
-            // 1.2.1 (owner 2026-11-22: the game's language): one word of GameLanguage.IDS in settings/language.txt (English = no
-            // file), read by the game library when the game starts (v1511+, game_language.h)
-            LANGUAGE = "language";
+            // next update (DLC): the player's own DLC packages in private-trace/inputs/dlc-stfs (DlcPacks); off by default
+            DLC_PACKS = "dlcPacks",
+            // 2026-11-22 (owner: "just add an in-app settings icon"): the launcher icon, one of the edition's three logos; settings/
+            // app-icon.txt (AppIcon.FILE, no file = Pink/Blue Dusk), applied by the app after a save and at every start (AppIcon).
+            APP_ICON = "appIcon",
+            // 2026-11-22 (owner: the game's language): one word of GameLanguage.IDS in settings/language.txt (English = no file),
+            // read by the game library when the game starts (v1511+, game_language.h)
+            LANGUAGE = "language",
+            // next update (owner 2026-11-24): the game's launcher music on the launcher (MenuMusic), on by default; settings/
+            // menu-music.txt = "off" when off (no file when on), read by the app's launcher (MenuMusicPlayer)
+            MENU_MUSIC = "menuMusic";
     /** Values of screenFill. */
     static final int SCREEN_FIT = 0, SCREEN_FILLED = 1;
     /** Values of touchControls. */
@@ -102,6 +110,7 @@ final class SettingsSchema {
             SettingSpec.slider(WORLD_SCENARIO_PEDESTRIANS, "World", "Scenario pedestrians", WORLD_DENSITY_MIN, 100, 5, 100, false),
             SettingSpec.slider(WORLD_DRAW_DISTANCE, "World", "Draw distance", WORLD_DRAW_DISTANCE_MIN, 100, 5, 100, false),
             SettingSpec.toggle(SCRIPT_MODS, "World", "Script mods"),
+            SettingSpec.toggle(DLC_PACKS, "World", "DLC: your own packs"), // (only for a build whose library reads --stfs-content-directory)
             SettingSpec.toggle(INPUT_UNBUFFERED, "Controller", "Low-delay stick input"),
             SettingSpec.choice(TOUCH_CONTROLS, "Controller", "Touch controls",
                     new String[] {"context", "pad", "off"},
@@ -119,9 +128,14 @@ final class SettingsSchema {
             // Update 1 haptics: the ids are the words of settings/haptics.txt (HapticsWords; Light = no file)
             SettingSpec.choice(HAPTICS, "Performance", "Vibration", HapticsWords.IDS,
                     new String[] {"Off", "Light (default)", "Full"}, RumbleMapper.LIGHT, false),
-            // 1.2.1: the game's language, beside Vibration (same group, so the classic menu's groups do not change); the launcher
-            // shows it on Display (SettingsPages). GameLanguage.IDS are the words of settings/language.txt.
+            // 2026-11-22: the app icon, the app's own row like Vibration (its group); the launcher shows it on Display (SettingsPages).
+            // AppIcon.IDS are the words of settings/app-icon.txt; Pink/Blue Dusk = no file.
+            SettingSpec.choice(APP_ICON, "Performance", "App icon", AppIcon.IDS, AppIcon.LABELS, AppIcon.DEFAULT, false),
+            // 2026-11-22: the game's language, beside the app icon (same group, so the classic menu's groups do not change); the
+            // launcher shows it on Display (SettingsPages). GameLanguage.IDS are the words of settings/language.txt.
             SettingSpec.choice(LANGUAGE, "Performance", "Language", GameLanguage.IDS, GameLanguage.LABELS, GameLanguage.DEFAULT, false),
+            // next update: the launcher music, the app's own row (same group as the app icon); the launcher shows it on Performance
+            SettingSpec.toggleOn(MENU_MUSIC, "Performance", "Menu music"),
             // Update 1 P6 My Music: the mode, the volume steps (MyMusicSettings.VOLUMES, default 80 %) and the order
             SettingSpec.choice(MY_MUSIC, "Music", "Mode", new String[] {"off", "everywhere"}, new String[] {"Off", "Everywhere"},
                     MY_MUSIC_OFF, false),
@@ -134,6 +148,7 @@ final class SettingsSchema {
     static final String HINT_SUPERSAMPLING = "Supersampling through a 1280x720 picture: smoother edges, more heat. Not native 1080p.";
     static final String HINT_SOFTER = "Softer and cooler: fewer pixels are drawn.";
     /** Update 1 haptics: what each Vibration value does (the device's own motor; the system's vibration settings still apply). */
+    static final String HINT_APP_ICON = "Your home screen icon. Changes when you save.";
     static final String HINT_HAPTICS_OFF = "No vibration from the game or the on-screen buttons.";
     static final String HINT_HAPTICS_LIGHT = "A short pulse when a rumble starts, and a light tick on button taps.";
     static final String HINT_HAPTICS_FULL = "The game's rumble as it plays, eased after two seconds, and a firmer tick on taps.";
@@ -280,10 +295,11 @@ final class SettingsSchema {
         if (key.equals(FRAME_GENERATION)) {
             return value == FG_BETWEEN ? HINT_FG_BETWEEN : value == FG_AHEAD ? HINT_FG_AHEAD : null;
         }
-        if (key.equals(LANGUAGE)) return GameLanguage.HINT;
         if (key.equals(HAPTICS)) {
             return value == RumbleMapper.OFF ? HINT_HAPTICS_OFF : value == RumbleMapper.FULL ? HINT_HAPTICS_FULL : HINT_HAPTICS_LIGHT;
         }
+        if (key.equals(APP_ICON)) return HINT_APP_ICON;
+        if (key.equals(LANGUAGE)) return GameLanguage.HINT;
         if (value == 100) return null;
         if (key.equals(WORLD_TRAFFIC)) return "Moving cars the game adds around you.";
         if (key.equals(WORLD_PEDESTRIANS)) return "People walking around.";

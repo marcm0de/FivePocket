@@ -25,7 +25,7 @@ import java.util.zip.CRC32;
  * written into staging/bundle.part while its size, CRC-32 and SHA-256 are checked against the manifest; the seal
  * over the whole file is checked at the end; only then is the directory renamed to bundle/ in one step. Any
  * failure removes staging/bundle.part and leaves bundle/ absent. An existing bundle/ is never replaced by a developer (format 1)
- * import; a public import replaces it only after the new file checked out in full (1.2.1 hotfix, the replace flow: PREVIOUS).
+ * import; a public import replaces it only after the new file checked out in full (next update, the replace flow: PREVIOUS).
  *
  * Checks, in the order of tools/own_disc/BUNDLE-FORMAT.md: (3) the first entry is manifest.json, no name repeats,
  * every entry is stored, not encrypted and well named; (4) format version 1 and the runtime interface this app
@@ -37,9 +37,9 @@ import java.util.zip.CRC32;
 final class CodeBundleImporter {
     static final String BUNDLE = "bundle";
     /**
-     * 1.2.1 hotfix (lead, owner: the replace flow, ported from the next update without its TU/DLC placing): the bundle a public import
-     * replaced, kept beside the new one until the new game code is in place (its activation passed, PublicGameCode.activate), then
-     * removed. An old bundle that fails this app's own pin can never run here, so it is removed right after the swap.
+     * Next update (lead, owner: the replace flow): the bundle a public import replaced, kept beside the new one until the new game
+     * code is in place (its activation passed, PublicGameCode.activate), then removed. An old bundle that fails this app's own pin
+     * can never run here, so it is removed right after the swap (its room goes to the activation).
      */
     static final String PREVIOUS = "bundle.previous";
     static final String PART = VerifiedExtractor.STAGING + "/bundle.part";
@@ -69,14 +69,25 @@ final class CodeBundleImporter {
     /** Public imports remain quarantined until all pinned disc files are copied and the launch gate passes. */
     static VerifiedExtractor.Outcome importPublic(InputStream zip, File root, VerifiedExtractor.Progress progress,
             SetupCatalog.Spec spec, VerifiedExtractor.Space space, ShipConfig contract) {
-        if (contract == null) return VerifiedExtractor.Outcome.failed(PublicCodeWords.APP_RECORD);
+        return importPublic(zip, root, progress, spec, space, contract == null ? null : java.util.Collections.singletonList(contract));
+    }
+
+    /**
+     * profiles: the app's own pinned profiles, the 1.0 one first (PublicGameCode.configs; owner 2026-11-24: one app for TU players).
+     * The bundle's program selects one; it is then checked against that profile alone. The installed bundle is judged by its own.
+     */
+    static VerifiedExtractor.Outcome importPublic(InputStream zip, File root, VerifiedExtractor.Progress progress,
+            SetupCatalog.Spec spec, VerifiedExtractor.Space space, java.util.List<ShipConfig> profiles) {
+        if (profiles == null || profiles.isEmpty() || profiles.contains(null)) return VerifiedExtractor.Outcome.failed(PublicCodeWords.APP_RECORD);
         if (!VerifiedExtractor.begin()) return VerifiedExtractor.Outcome.failed(VerifiedExtractor.Problem.BUSY, PublicCodeWords.BUSY);
-        try { return importLocked(zip, root, progress, spec, space, contract); }
+        try { return importLocked(zip, root, progress, spec, space, profiles); }
         finally { VerifiedExtractor.end(); }
     }
 
     private static VerifiedExtractor.Outcome importLocked(InputStream zip, File root, VerifiedExtractor.Progress progress,
-            SetupCatalog.Spec spec, VerifiedExtractor.Space space, ShipConfig publicContract) {
+            SetupCatalog.Spec spec, VerifiedExtractor.Space space, java.util.List<ShipConfig> profiles) {
+        // null profiles: the developer import. publicContract: until the bundle is read the first profile, then the one it selects.
+        ShipConfig publicContract = profiles == null ? null : profiles.get(0);
         File part = null;
         boolean committed = false;
         long total = 0;
@@ -89,13 +100,15 @@ final class CodeBundleImporter {
             }
             File bundleDirectory = InstallGuard.under(root, BUNDLE);
             recoverSwap(root);   // a run killed between the two renames of a replacement: the old bundle back in place
+            // what is installed is judged by the profile it selects itself (a 1.0 install is good under the 1.0 profile)
+            ShipConfig installedContract = profiles == null ? null : profiles.get(PublicGameCode.installedIndex(root, profiles));
             boolean replacing = false, installedGood = false;
             String installedSeal = null;
             if (publicContract != null && bundleDirectory.exists()) {
-                // 1.2.1 (replace flow): the chosen file is read and checked in full into staging; it replaces what is there only when
-                // it checks out. What is installed stays untouched until then, whatever its state.
+                // Next update (replace flow): the chosen file is read and checked in full into staging; it replaces what is there only
+                // when it checks out. What is installed stays untouched until then, whatever its state.
                 replacing = true;
-                installedGood = PublicGameCode.installedProblem(root, publicContract) == null;
+                installedGood = PublicGameCode.installedProblem(root, installedContract) == null;
                 try {
                     installedSeal = PublicGameCode.seal(root);
                 } catch (IOException noSeal) {
@@ -103,14 +116,14 @@ final class CodeBundleImporter {
                 }
             } else if (bundleDirectory.exists()) {
                 // An earlier import renamed the directory into place but could not write the record any more.
-                String damage = publicContract == null ? verifyInstalled(root, spec) : PublicGameCode.installedProblem(root, publicContract);
+                String damage = publicContract == null ? verifyInstalled(root, spec) : PublicGameCode.installedProblem(root, installedContract);
                 if (damage != null) {
                     if (publicContract != null) return VerifiedExtractor.Outcome.failed(VerifiedExtractor.Problem.EXISTING_INSTALL, damage);
                     return VerifiedExtractor.Outcome.failed(VerifiedExtractor.Problem.EXISTING_INSTALL, "Game code is already on this device"
                             + " but does not pass its check (" + damage + "); it was not changed.");
                 }
                 if (publicContract == null) InstallGuard.refreshRecord(root, spec);
-                return VerifiedExtractor.Outcome.done();
+                return placeExtras(root, installedContract);   // (next update: a placing of TU/DLC parts that stopped earlier is finished)
             }
             if (publicContract == null && !new File(new File(root, VerifiedExtractor.INPUTS), spec.executableSha256 + ".bin").isFile()) {
                 return VerifiedExtractor.Outcome.failed("Copy the game files from your play disc first: the game code is checked"
@@ -147,8 +160,11 @@ final class CodeBundleImporter {
                 return VerifiedExtractor.Outcome.failed(VerifiedExtractor.Problem.BUNDLE_OTHER, "This code bundle was built for"
                         + " another app version (runtime interface " + bundle.runtimeAbi + ").");
             }
-            if (!spec.executableSha256.equals(bundle.executableSha256)) {
-                if (publicContract != null) return VerifiedExtractor.Outcome.failed(VerifiedExtractor.Problem.BUNDLE_OTHER, PublicCodeWords.GAME);
+            if (publicContract != null) {
+                publicContract = profiles.get(PublicGameCode.select(bundle, profiles));   // the app's own profile this bundle's program names
+                String game = PublicGameCode.gameProblem(bundle, spec.executableSha256, publicContract);
+                if (game != null) return VerifiedExtractor.Outcome.failed(VerifiedExtractor.Problem.BUNDLE_OTHER, game);
+            } else if (!spec.executableSha256.equals(bundle.executableSha256)) {
                 return VerifiedExtractor.Outcome.failed(VerifiedExtractor.Problem.BUNDLE_OTHER, "This code bundle was built from"
                         + " another game program (check code " + bundle.executableSha256.substring(0, 12) + ") than the one on the"
                         + " play disc of " + spec.label + ".");
@@ -191,12 +207,12 @@ final class CodeBundleImporter {
                 crc.reset();
                 FileChannel out = VerifiedExtractor.createNew(target);
                 try {
-                    long left = entry.bytes;
+                    long left = entry.bytes, sinceFlush = 0;
                     while (left > 0) {
                         if (progress.cancelled()) return VerifiedExtractor.Outcome.stopped();
                         int n = in.read(buffer, 0, (int) Math.min(buffer.length, left));
                         if (n < 0) return damaged("The bundle file is incomplete: it ends inside " + name + ".");
-                        VerifiedExtractor.writeAll(out, buffer, n);
+                        sinceFlush = VerifiedExtractor.writeBounded(out, buffer, n, sinceFlush);   // (dirty pages bounded: a 1 GB DLC pack)
                         sha.update(buffer, 0, n);
                         crc.update(buffer, 0, n);
                         left -= n;
@@ -228,7 +244,7 @@ final class CodeBundleImporter {
                         + " meanwhile; it was not changed.");
             }
             if (replacing && installedGood && in.seal().equals(installedSeal)) {
-                return VerifiedExtractor.Outcome.done();   // the same bundle, intact: nothing is replaced (staging is removed below)
+                return placeExtras(root, publicContract);   // the same bundle, intact: nothing is replaced (staging is removed below)
             }
             if (publicContract != null) writeFile(InstallGuard.under(root, PART + "/seal.txt"),
                     (in.seal() + "\n").getBytes(StandardCharsets.US_ASCII));
@@ -248,7 +264,7 @@ final class CodeBundleImporter {
             }
             if (publicContract == null) InstallGuard.refreshRecord(root, spec);
             progress.update(total, total, bundle.entries.size(), bundle.entries.size(), "");
-            return VerifiedExtractor.Outcome.done();
+            return placeExtras(root, publicContract);
         } catch (EOFException e) {
             return damaged("The bundle file is incomplete (" + VerifiedExtractor.reason(e) + ").");
         } catch (NotABundle e) {
@@ -272,6 +288,19 @@ final class CodeBundleImporter {
         } finally {
             if (part != null && !committed) discard(part);
         }
+    }
+
+    /**
+     * Next update: moves the bundle's title update and DLC packs into the game's folders (BundleExtras). The game code itself is in
+     * place either way; a placing that fails is reported (so a TU-built library never starts unnoticed without its update.rpf) and
+     * is finished by the next import of the file or the next start of the app.
+     */
+    private static VerifiedExtractor.Outcome placeExtras(File root, ShipConfig profile) {
+        // update.rpf into the folder the selected profile's own start request names (a 1.0 profile's stays without it)
+        BundleExtras.Result placed = BundleExtras.place(root.getAbsoluteFile().getParentFile(),
+                profile == null ? ShipConfig.DEFAULT_UPDATE_DIRECTORY : profile.updateDirectory);
+        if (placed.problem == null) return VerifiedExtractor.Outcome.done();
+        return VerifiedExtractor.Outcome.failed(VerifiedExtractor.Problem.STORAGE, PublicCodeWords.EXTRAS);   // (no path: the start logs the detail)
     }
 
     /**

@@ -228,7 +228,8 @@ final class AboutScreen {
         int settings = 0;
         List<String> missing = new java.util.ArrayList<String>();
         for (SettingSpec spec : SettingsSchema.all()) {
-            if (spec.key.equals(SettingsSchema.INPUT_UNBUFFERED) || spec.key.equals(SettingsSchema.HAPTICS)) { // (the app's own settings)
+            if (spec.key.equals(SettingsSchema.INPUT_UNBUFFERED) || spec.key.equals(SettingsSchema.HAPTICS)
+                    || spec.key.equals(SettingsSchema.APP_ICON) || spec.key.equals(SettingsSchema.MENU_MUSIC)) { // (the app's own settings; next update: Menu music)
                 continue;
             }
             if (MyMusicSettings.hiddenRow(spec.key)) continue;   // (Update 1: rows the launcher does not show are never named here)

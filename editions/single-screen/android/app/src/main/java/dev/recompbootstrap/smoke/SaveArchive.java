@@ -98,7 +98,10 @@ final class SaveArchive {
     static List<Item> list(File filesDir, List<String> folders) throws IOException {
         List<Item> items = new ArrayList<Item>();
         for (String root : ROOTS) walk(new File(filesDir, root), root, items, folders);
-        if (items.size() + folders.size() > MAX_FILES) throw new IOException("more than " + MAX_FILES + " save files");
+        // files and folders count apart, as read() checks them: a test copy's many save sandboxes (11,508 files in some 8,500 folders on
+        // the Fold 2026-11-22) still export, and anything export writes, read() takes
+        if (items.size() > MAX_FILES) throw new IOException("more than " + MAX_FILES + " save files");
+        if (folders.size() > MAX_FILES) throw new IOException("more than " + MAX_FILES + " save folders");
         return items;
     }
 
@@ -139,9 +142,15 @@ final class SaveArchive {
             List<String> folders = new ArrayList<String>();
             List<Item> items = list(filesDir, folders);
             if (items.isEmpty()) return Result.failed(TEXT_NO_SAVES);
+            // refuse here, before a byte is written, what read() would refuse: a list or a total over its limits
+            byte[] manifest = manifest(items, folders, about).getBytes(StandardCharsets.UTF_8);
+            if (manifest.length > MAX_MANIFEST_BYTES) throw new IOException("the list of save files is too long");
+            long sum = 0;
+            for (Item item : items) sum += item.size;
+            if (sum > MAX_TOTAL_BYTES) throw new IOException("the saves are larger than " + megabytes(MAX_TOTAL_BYTES));
             ZipOutputStream zip = new ZipOutputStream(out);
             zip.putNextEntry(new ZipEntry(MANIFEST));
-            zip.write(manifest(items, folders, about).getBytes(StandardCharsets.UTF_8));
+            zip.write(manifest);
             zip.closeEntry();
             byte[] buffer = new byte[1 << 16];
             for (Item item : items) {
@@ -237,7 +246,7 @@ final class SaveArchive {
             if (manifestBytes == null) return failedRead(staging, TEXT_FOREIGN);
             Object parsed;
             try {
-                parsed = JsonLite.parse(new String(manifestBytes, StandardCharsets.UTF_8));
+                parsed = JsonLite.parse(new String(manifestBytes, StandardCharsets.UTF_8), MAX_MANIFEST_BYTES);   // not JsonLite's 1 MiB
             } catch (JsonLite.ParseException e) {
                 return failedRead(staging, TEXT_FOREIGN);
             }

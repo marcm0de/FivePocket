@@ -21,7 +21,7 @@ import java.util.TimeZone;
  */
 final class MenuModel {
     static final int ACTION_NONE = 0, ACTION_SAVE = 1, ACTION_LEAVE = 2;
-    /** 1.2.1 (owner): the save export / import rows and the import's question; the screen does the work (SaveArchive). */
+    /** Next update (owner): the save export / import rows and the import's question; the screen does the work (SaveArchive). */
     static final int ACTION_EXPORT_SAVES = 3, ACTION_IMPORT_SAVES = 4, ACTION_IMPORT_CONFIRMED = 5;
     static final int OVERLAY_NONE = 0, OVERLAY_RESTORE = 1, OVERLAY_SAVE_QUESTION = 2, OVERLAY_DRIFT_LIST = 3, OVERLAY_IMPORT_SAVES = 4;
     static final String TEXT_EXPORT_SAVES = "Export saves", TEXT_IMPORT_SAVES = "Import saves";
@@ -350,7 +350,7 @@ final class MenuModel {
         }
     }
 
-    // ------------------------------------------------------------------------------------------ save export / import (1.2.1)
+    // ------------------------------------------------------------------------------------------ save export / import (next update)
 
     /** The screen has taken a save export / import action (it opens the picker or does the work). */
     void actionTaken() {
@@ -361,12 +361,6 @@ final class MenuModel {
     void askImportSaves(String detail) {
         importDetail = detail;
         open(OVERLAY_IMPORT_SAVES, IMPORT_BUTTONS.length - 1);
-    }
-
-    /** A line of the screen's own work in the footer status; stays until the next command or note. */
-    void note(String text) {
-        status = text;
-        statusTone = TONE_NORMAL;
     }
 
     // ------------------------------------------------------------------------------------------ saving
@@ -441,6 +435,12 @@ final class MenuModel {
 
     int statusTone() {
         return statusTone;
+    }
+
+    /** Next update: a line of the screen's own work (Add DLC) in the footer status; stays until the next command or note. */
+    void note(String text) {
+        status = text;
+        statusTone = TONE_NORMAL;
     }
 
     /** The screen calls this two seconds after "Saved." appeared; any other status stays until the next command. */

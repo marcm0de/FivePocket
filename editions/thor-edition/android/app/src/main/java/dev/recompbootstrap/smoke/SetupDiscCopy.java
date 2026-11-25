@@ -213,6 +213,8 @@ final class SetupDiscCopy {
             }
             final FileChannel out = channel;
             return new OutputStream() {
+                private long sinceFlush;   // (VerifiedExtractor.FLUSH_EVERY: dirty pages bounded, TU27 2026-11-24 lmkd kill on the Thor)
+
                 @Override public void write(int b) throws IOException {
                     write(new byte[] {(byte) b}, 0, 1);
                 }
@@ -221,6 +223,11 @@ final class SetupDiscCopy {
                     try {
                         ByteBuffer bytes = ByteBuffer.wrap(buffer, offset, length);
                         while (bytes.hasRemaining()) out.write(bytes);
+                        sinceFlush += length;
+                        if (sinceFlush >= VerifiedExtractor.FLUSH_EVERY) {
+                            out.force(false);
+                            sinceFlush = 0;
+                        }
                     } catch (IOException e) {
                         throw new WriteFailed(e);
                     }

@@ -89,13 +89,15 @@ final class TouchPad {
     private void relayout(){
         controls.clear();
         if(mode==Mode.OFF || !(frame[2]>0))return;
-        if(mode!=Mode.PAD && overlay!=Overlay.PLAY)controls.addAll(overlayLayout(overlay,skipRevealed,phoneCall,cutscene)); // (SPEC 3.10)
+        if(mode!=Mode.PAD && overlay!=Overlay.PLAY)controls.addAll(overlayLayout(overlay,skipRevealed,phoneCall,cutscene,scriptMenu())); // (SPEC 3.10)
         else {
             controls.addAll(mode==Mode.PAD?padLayout():layoutB?contextLayoutB(shownContext<0?FOOT:shownContext,moreOpen):contextLayout(shownContext<0?FOOT:shownContext));
             if(mode==Mode.CONTEXT){ // (SPEC 3.14: app actions, nothing for the game's pad)
                 controls.add(at(TOP_SAVE,"qsave","SAVE","",Kind.APP,0,GREY));
                 if(imenuButton)controls.add(at(TOP_IMENU,"imenu","MENU","BACK",Kind.IMENU,BACK,GREY)); // (3.17: the game's Interaction Menu)
                 if(trainerButton)controls.add(at(TOP_TRAINER,"trainer","TRAINER","",Kind.APP,0,GREY));
+                final int hc=shownContext<0?FOOT:shownContext;
+                if(helpUp && (hc==FOOT || hc==NONE))controls.add(at(HELP_DPAD,"help_dpad","D-PAD","",Kind.DPAD,0,GREY)); // (the help box's prompt)
                 if(steerArrows(shownContext<0?FOOT:shownContext)){ // (3.16: bits = the direction, STEER_LEFT / STEER_RIGHT, not pad bits)
                     controls.add(at(STEER_L,"steer_l","LEFT","LS",Kind.STEER,STEER_LEFT,GREY));
                     controls.add(at(STEER_R,"steer_r","RIGHT","LS",Kind.STEER,STEER_RIGHT,GREY));
@@ -225,6 +227,8 @@ final class TouchPad {
     static List<Control> contextLayoutB(int ctx,boolean more){
         final List<Control> l=base();
         l.add(at(B_MORE,"more","MORE","",Kind.MORE,0,GREY));
+        final MoreRow row=new MoreRow(l,more);
+        if(ctx!=FOOT && ctx!=NONE)l.add(at(TOP_PHONE,"phone","PHONE","D-UP",Kind.BUTTON,DU,GREY)); // (touch map 11-22: the phone works in every vehicle)
         switch(ctx){
             case CAR:case BIKE:case BICYCLE:{
                 l.add(at(B_BIG,"gas","GAS","RT",Kind.TRIGGER_R,0,GREY));
@@ -235,10 +239,10 @@ final class TouchPad {
                 l.add(at(B_COL_2,"horn","HORN","L3",Kind.BUTTON,L3,GREY));
                 l.add(at(B_COL_3,"radio","RADIO","D-LEFT",Kind.TAP_OR_WHEEL,DL,GREY));
                 l.add(at(B_COL_4,"look","LOOK","R3",Kind.BUTTON,R3,GREY));
-                if(more){
-                    l.add(at(B_ROW_1,"driveby","DRIVE-BY","LB",Kind.BUTTON,LB,GREY));
-                    if(ctx==CAR){l.add(at(B_ROW_2,"lights","LIGHTS","D-RIGHT",Kind.BUTTON,DR,GREY));l.add(at(B_ROW_3,"cinema","CINEMA","B",Kind.BUTTON,B,RED));}
-                }
+                row.add("driveby","DRIVE-BY","LB",Kind.BUTTON,LB,GREY);
+                if(ctx==CAR)row.add("lights","LIGHTS","D-RIGHT",Kind.BUTTON,DR,GREY);
+                row.add("cinema","CINEMA","B",Kind.BUTTON,B,RED);
+                row.add("special","SPECIAL","L3+R3",Kind.BUTTON,SPECIAL,GREY);
                 break;}
             case BOAT:case SUB:{
                 l.add(at(B_BIG,"throttle","THROTTLE","RT",Kind.TRIGGER_R,0,GREY));
@@ -249,8 +253,11 @@ final class TouchPad {
                 if(ctx==SUB){
                     l.add(at(new float[]{B_MID1[0],B_MID1[1],0.13f},"dive","DIVE","A",Kind.BUTTON,A,GREEN));
                     l.add(at(new float[]{B_MID2[0],B_MID2[1],0.13f},"rise","RISE","X",Kind.BUTTON,X,BLUE));
-                    if(more){l.add(at(B_ROW_1,"turnl","TURN-L","LB",Kind.BUTTON,LB,GREY));l.add(at(B_ROW_2,"turnr","TURN-R","RB",Kind.BUTTON,RB,GREY));}
+                    row.add("turnl","TURN-L","LB",Kind.BUTTON,LB,GREY);row.add("turnr","TURN-R","RB",Kind.BUTTON,RB,GREY);
                 }
+                row.add("cinema","CINEMA","B",Kind.BUTTON,B,RED);
+                row.add("look","LOOK","R3",Kind.BUTTON,R3,GREY);
+                row.add("special","SPECIAL","L3+R3",Kind.BUTTON,SPECIAL,GREY);
                 break;}
             case HELI:case PLANE:{
                 final boolean heli=ctx==HELI;
@@ -262,9 +269,13 @@ final class TouchPad {
                 l.add(at(B_COL_2,"radio","RADIO","D-LEFT",Kind.TAP_OR_WHEEL,DL,GREY));
                 l.add(at(B_COL_3,"missile","FIRE","X",Kind.BUTTON,X,BLUE));
                 l.add(at(B_COL_4,heli?"wcam":"gear",heli?"W-CAM":"GEAR",heli?"R3":"L3",Kind.BUTTON,heli?R3:L3,GREY));
+                row.add("cinema","CINEMA","B",Kind.BUTTON,B,RED);
+                row.add("special","SPECIAL","L3+R3",Kind.BUTTON,SPECIAL,GREY);
                 break;}
             case TRAIN:{
                 l.add(at(B_COL_1,"exit","EXIT","Y",Kind.BUTTON,Y,YELLOW));
+                row.add("cinema","CINEMA","B",Kind.BUTTON,B,RED);
+                row.add("look","LOOK","R3",Kind.BUTTON,R3,GREY);
                 break;}
             default:{ // FOOT (and NONE)
                 l.add(at(B_BIG,"fire","FIRE","RT",Kind.FIRE_FULL,0,GREY));
@@ -274,17 +285,59 @@ final class TouchPad {
                 l.add(at(B_COL_1,"enter","ENTER","Y",Kind.BUTTON,Y,YELLOW));
                 l.add(at(B_COL_2,"cover","COVER","RB",Kind.BUTTON,RB,GREY));
                 l.add(at(B_COL_3,"melee","MELEE","B",Kind.BUTTON,B,RED)); // (B: melee, and reload)
+                l.add(at(B_COL_4,"special","SPECIAL","L3+R3",Kind.BUTTON,SPECIAL,GREY)); // (touch map 11-22: the character's special ability = both stick clicks in one press)
                 l.add(at(TOP_PHONE,"phone","PHONE","D-UP",Kind.BUTTON,DU,GREY));
                 l.add(at(WEAPON_SLOT,"weapon","WEAPON","LB",Kind.WEAPON_TAP,LB,GREY));
-                if(more){
-                    l.add(at(B_ROW_1,"stealth","STEALTH","L3",Kind.BUTTON,L3,GREY));
-                    l.add(at(B_ROW_2,"look","LOOK","R3",Kind.BUTTON,R3,GREY));
-                    l.add(at(B_ROW_3,"switch","SWITCH","D-DOWN",Kind.WHEEL,DD,GREY));
-                    l.add(at(B_ROW_4,"weapons","WEAPONS","LB",Kind.WHEEL,LB,GREY));
-                }
+                row.add("stealth","STEALTH","L3",Kind.BUTTON,L3,GREY);
+                row.add("look","LOOK","R3",Kind.BUTTON,R3,GREY);
+                row.add("switch","SWITCH","D-DOWN",Kind.WHEEL,DD,GREY);
+                row.add("weapons","WEAPONS","LB",Kind.WHEEL,LB,GREY);
                 break;}
         }
+        row.fill();
         return l;
+    }
+    // ---- touch map (2026-11-22, owner: "map out something for every screen in the game"; update-1/touch-next/TOUCH-MAP.md section 2):
+    // every 360 input is reachable in every gameplay context. The context's own MORE items come first, then fill() adds a plain
+    // key-labelled button for each input no shown control (MORE open) gives yet; the D-pad as one D-PAD control. SPECIAL = L3 and R3 in
+    // one press (the character's special ability; Franklin's in a car).
+    static final int SPECIAL=L3|R3;
+    /** The MORE row's slots: up to ROW_PER per row from x ROW_X0 (bottom row y 0.92, the second y 0.81), right of the minimap. */
+    static final float ROW_X0=0.32f,ROW_STEP=0.065f,MORE_D=0.07f,MORE_DPAD_D=0.09f;static final int ROW_PER=6;
+    static float[] rowSlot(int n,boolean dpad){return new float[]{ROW_X0+(n%ROW_PER)*ROW_STEP,n<ROW_PER?0.92f:0.81f,dpad?MORE_DPAD_D:MORE_D};}
+    /** The 360 inputs one control gives (bits, LT = 1<<16, RT = 1<<17; the D-pad all four). */
+    static final int IN_LT=1<<16,IN_RT=1<<17;
+    static int inputs(Control c){
+        switch(c.kind){
+            case TRIGGER_L:case AIM_LATCH:return IN_LT;
+            case TRIGGER_R:case FIRE_FULL:return IN_RT;
+            case DPAD:return DU|DD|DL|DR;
+            case STEER:case MORE:case HIDE:case APP:return 0;
+            default:return c.bits;
+        }
+    }
+    /** The inputs every gameplay context must reach (with MORE open): all buttons, both triggers, the D-pad, START and BACK. */
+    static final int ALL_INPUTS=A|B|X|Y|LB|RB|L3|R3|DU|DD|DL|DR|START|BACK|IN_LT|IN_RT;
+    private static final class MoreRow {
+        private final List<Control> l;private final boolean open;private int n;
+        MoreRow(List<Control> l,boolean open){this.l=l;this.open=open;}
+        void add(String id,String label,String key,Kind k,int bits,int color){
+            final Control c=at(rowSlot(n,k==Kind.DPAD),id,label,key,k,bits,color);n++;
+            if(open)l.add(c); else hidden.add(c);
+        }
+        private final List<Control> hidden=new ArrayList<>();
+        void fill(){
+            int have=0;boolean special=false;
+            for(Control c:l){have|=inputs(c);if(c.kind==Kind.BUTTON && (c.bits&SPECIAL)==SPECIAL)special=true;}
+            for(Control c:hidden){have|=inputs(c);if(c.kind==Kind.BUTTON && (c.bits&SPECIAL)==SPECIAL)special=true;}
+            final int[] bit={A,B,X,Y,LB,RB,L3,R3};final String[] name={"A","B","X","Y","LB","RB","L3","R3"};
+            final int[] col={GREEN,RED,BLUE,YELLOW,GREY,GREY,GREY,GREY};
+            for(int i=0;i<bit.length;++i)if((have&bit[i])==0)add("fill_"+name[i].toLowerCase(java.util.Locale.ROOT),name[i],name[i],Kind.BUTTON,bit[i],col[i]);
+            if((have&IN_LT)==0)add("fill_lt","LT","LT",Kind.TRIGGER_L,0,GREY);
+            if((have&IN_RT)==0)add("fill_rt","RT","RT",Kind.TRIGGER_R,0,GREY);
+            if((have&(DU|DD|DL|DR))!=(DU|DD|DL|DR))add("more_dpad","D-PAD","",Kind.DPAD,0,GREY);
+            if(!special)add("special","SPECIAL","L3+R3",Kind.BUTTON,SPECIAL,GREY);
+        }
     }
     boolean moreOpen(){return moreOpen;}
     // ---- SPEC 3.14: the app's own buttons (SAVE: the library's OpenSaveMenu; TRAINER: the side menu's Trainer tab)
@@ -354,12 +407,13 @@ final class TouchPad {
         weaponGroup=word>=0?(word>>>26)&0xF:0; // (v707: the selected weapon's group, SPEC 3.12)
         final boolean cut=skippable(word); // (3.10 v2: SKIP only where the game can skip - a cutscene)
         if(cut!=cutscene){cutscene=cut;if(overlay==Overlay.SKIP)relayout();}
-        final Overlay target=phoneOverlay(overlayFor(word),phoneUp);
+        final Overlay target=menuOverlay(phoneOverlay(overlayFor(word),phoneUp),menuHeld); // (next update: a shop menu = the MENU pad)
         if(target!=overlay){ // (SPEC 3.10: the map at once, the others after 2 reads in a row)
             final int need=overlay==Overlay.MAP && target==Overlay.MENU?MENU_FROM_MAP_READS:2;
             if(target==Overlay.MAP || (target==pendingOverlay && ++overlayCount>=need)){overlay=target;skipRevealed=false;overlayCount=0;relayout();}
             else if(target!=pendingOverlay){pendingOverlay=target;overlayCount=1;}
         } else {pendingOverlay=target;overlayCount=0;}
+        {final boolean sm=scriptMenu();if(sm!=shownScriptMenu){shownScriptMenu=sm;relayout();}} // (touch map: a frontend menu closing over a held script menu)
         final int ctx=word<0?-1:(word&0xFF);
         if(ctx<0 || ctx==NONE){pendingCount=0;return;} // (loading / no answer: keep the last layout)
         if(ctx==context){pendingCount=0;if(shownContext!=context){shownContext=context;relayout();}return;}
@@ -391,15 +445,39 @@ final class TouchPad {
     Overlay overlay(){return overlay;}
     // ---- SPEC 3.15 (owner 2026-10-25: "when the phone comes up, we need the touch controls to change also"): the phone pad
     private boolean phoneUp,phoneCall;
+    /** Next update (android-qol; run-v1509-11110530 / run-v1601-11110555 on the Fold): the game's help box is up (recomp_phone_state_v1
+     *  bit 3, library v1601+). Its prompts ask for the D-pad ("Press -> to browse" at a shop) and the on-foot pad has none: a small
+     *  contextual D-pad shows under the box. */
+    private boolean helpUp;
+    /** A script menu (a shop, the interaction menu) holds a menu-library slot (bit 4, library v1603+): gameplay becomes the MENU pad
+     *  (D-pad, A, B, LB, RB, START), the shop menu has no frontend flag of its own. */
+    private boolean menuHeld;
+    static final float[] HELP_DPAD={0.12f,0.30f,0.16f};
+    boolean helpUp(){return helpUp;}
+    /** The MENU overlay shown for a script menu (bit 4), not a frontend menu: no screen bit (frontend, wheel, cutscene) is set. */
+    boolean scriptMenu(){return overlay==Overlay.MENU && menuHeld && screens==0;}
+    private boolean shownScriptMenu;
+    boolean menuHeld(){return menuHeld;}
+    /** Touch map (2026-11-22): the player state from recomp_phone_state_v1 bits 5-9 (PLAYER_SWIM .. PLAYER_COVER); 0 from an older library.
+     *  Logged by the glue; the labels change only once a device frame shows the game's own prompts (TOUCH-MAP.md section 4). */
+    static final int PLAYER_SWIM=1,PLAYER_UNDERWATER=2,PLAYER_FREEFALL=4,PLAYER_CANOPY=8,PLAYER_COVER=16;
+    private int player;
+    int player(){return player;}
     /** The library's phone state (recomp_phone_state_v1: bit 0 up, bit 1 ringing, bit 2 a call ongoing; -100 / negative: none), set
      *  before each contextWord: the phone itself takes effect like any overlay change; a call relabels the shown pad at once. */
     void phone(int bits){
         phoneUp=bits>0 && (bits&1)!=0;
         final boolean call=phoneUp && (bits&6)!=0;
         if(call!=phoneCall){phoneCall=call;if(overlay==Overlay.PHONE)relayout();}
+        final boolean help=bits>0 && (bits&8)!=0; // (bit 3; an older library never sets it)
+        if(help!=helpUp){helpUp=help;if(overlay==Overlay.PLAY)relayout();}
+        menuHeld=bits>0 && (bits&16)!=0; // (bit 4: takes effect like any overlay change, at the next contextWord reads)
+        player=bits>0?(bits>>5)&0x1F:0; // (touch map: bits 5-9 swim, under water, free fall, canopy, cover; a library before the touch-map attempt: 0)
     }
     /** Gameplay with the phone up is the PHONE pad; a menu, the map or a cutscene keep their own overlay. */
     static Overlay phoneOverlay(Overlay o,boolean phone){return o==Overlay.PLAY && phone?Overlay.PHONE:o;}
+    /** Gameplay while a script menu holds a slot is the MENU pad; the phone, a frontend menu, the map or a cutscene keep theirs. */
+    static Overlay menuOverlay(Overlay o,boolean menu){return o==Overlay.PLAY && menu?Overlay.MENU:o;}
     static final float[] PHONE_OK={0.90f,0.80f,0.12f},PHONE_BACK={0.96f,0.60f,0.10f}; // (the menu set's A / B slots, right of the game's phone)
     boolean skipRevealed(){return skipRevealed;}
     // SPEC 3.10 v2 (owner 2026-10-27: "intro skip button no work" - he tapped it ~30 times on the load after a save, word 0x100001 =
@@ -412,7 +490,9 @@ final class TouchPad {
     }
     static final float[] SKIP_SLOT={0.93f,0.86f,0.08f},MENU_DPAD={0.12f,0.74f,0.20f},MENU_A={0.90f,0.80f,0.12f},MENU_B={0.96f,0.60f,0.10f},
         MENU_LB={0.06f,0.27f,0.09f},MENU_RB={0.94f,0.27f,0.09f},MENU_START={0.55f,0.06f,0.06f},
-        MENU_X={0.80f,0.62f,0.09f},MENU_Y={0.86f,0.44f,0.09f}; // (map-prompts: the menu's prompts also name X and Y, e.g. "Hide Menu Y")
+        MENU_X={0.80f,0.62f,0.09f},MENU_Y={0.86f,0.44f,0.09f},
+        MENU_LT={0.06f,0.42f,0.09f},MENU_RT={0.94f,0.42f,0.09f},SKIP_B={0.84f,0.88f,0.065f},SKIP_X={0.78f,0.88f,0.065f},SKIP_Y={0.72f,0.88f,0.065f},
+        PHONE_X={0.27f,0.86f,0.08f},PHONE_Y={0.27f,0.62f,0.08f}; // (map-prompts: the menu's prompts also name X and Y, e.g. "Hide Menu Y")
     /** map-prompts (owner 2026-10-24: "on the map indoors, make the buttons on the bottom work with touch, to switch view and such"): on the
      *  open map, the game's prompt buttons as a row of GTA prompt icons above the game's own prompt strip (bottom right of the frame,
      *  guest y ~0.93): the player reads the prompt and taps its button. The Fold's indoor map (devcheck/fold-v12-1/02-map-open.png) shows
@@ -424,10 +504,19 @@ final class TouchPad {
     float promptY(float r){final float bar=frame[1];return bar>=2.4f*r?frame[1]+frame[3]+bar*0.5f:frame[1]+PROMPT_Y*frame[3];}
     static final String[] PROMPT_IDS={"prompt_back","prompt_dpad","prompt_y","prompt_x","prompt_b","prompt_a"};
     /** The controls of an overlay: none on the map; SKIP only once revealed by a first touch; the menu set (D-pad, A, B, LB, RB, START). */
-    static List<Control> overlayLayout(Overlay o,boolean revealed,boolean call,boolean skippable){
+    static List<Control> overlayLayout(Overlay o,boolean revealed,boolean call,boolean skippable){return overlayLayout(o,revealed,call,skippable,false);}
+    /** scriptMenu: the MENU overlay comes from a script menu (a shop, the interaction menu: phone-state bit 4, no frontend flag). */
+    static List<Control> overlayLayout(Overlay o,boolean revealed,boolean call,boolean skippable,boolean scriptMenu){
         final List<Control> l=new ArrayList<>();
         switch(o){
-            case SKIP:if(revealed && skippable)l.add(at(SKIP_SLOT,"skip","SKIP","A",Kind.BUTTON,A,GREEN));break;
+            case SKIP:if(revealed && skippable){
+                    l.add(at(SKIP_SLOT,"skip","SKIP","A",Kind.BUTTON,A,GREEN));
+                    // (touch map 11-22: the mission-fail screen is control-off without a fade too; its other prompts - skip the checkpoint, quit -
+                    //  are B / X / Y; which is which is unknown without a frame, so plain key-labelled buttons beside SKIP)
+                    l.add(at(SKIP_B,"skip_b","B","B",Kind.BUTTON,B,RED));
+                    l.add(at(SKIP_X,"skip_x","X","X",Kind.BUTTON,X,BLUE));
+                    l.add(at(SKIP_Y,"skip_y","Y","Y",Kind.BUTTON,Y,YELLOW));
+                }break;
             case MENU:
                 l.add(hideControl());
                 l.add(at(MENU_START,"pause","START","START",Kind.BUTTON,START,GREY));
@@ -438,6 +527,10 @@ final class TouchPad {
                 l.add(at(MENU_RB,"menu_rb","RB","",Kind.BUTTON,RB,GREY));
                 l.add(at(MENU_X,"menu_x","X","",Kind.BUTTON,X,BLUE));
                 l.add(at(MENU_Y,"menu_y","Y","",Kind.BUTTON,Y,YELLOW));
+                if(scriptMenu){ // (touch map 11-22: a shop's preview turns / zooms on the triggers and the right stick; the sticks stay live, sticksBlocked)
+                    l.add(at(MENU_LT,"menu_lt","LT","LT",Kind.TRIGGER_L,0,GREY));
+                    l.add(at(MENU_RT,"menu_rt","RT","RT",Kind.TRIGGER_R,0,GREY));
+                }
                 break;
             case PHONE: // (SPEC 3.15: the phone's D-pad, select as a check, back as an X; no stick, fire or combat button)
                 l.add(hideControl());
@@ -450,6 +543,12 @@ final class TouchPad {
                     l.add(at(PHONE_OK,"phone_ok","SELECT","A",Kind.BUTTON,A,GREEN));
                     l.add(at(PHONE_BACK,"phone_back","BACK","B",Kind.BUTTON,B,RED));
                 }
+                // (touch map 11-22: the phone's apps also name X, Y and the bumpers - Camera filters / selfie, email delete; the sticks stay
+                //  live as in the game: walk and turn with the phone out, the Internet cursor, the Camera aim)
+                l.add(at(PHONE_X,"phone_x","X","X",Kind.BUTTON,X,BLUE)); // (left of the frame: the game draws its phone on the right; taps there are the phone's, phone_touch.h)
+                l.add(at(PHONE_Y,"phone_y","Y","Y",Kind.BUTTON,Y,YELLOW));
+                l.add(at(MENU_LB,"phone_lb","LB","LB",Kind.BUTTON,LB,GREY));
+                l.add(at(MENU_RB,"phone_rb","RB","RB",Kind.BUTTON,RB,GREY));
                 break;
             case MAP: // (map-prompts: the row of prompt buttons; the rest of the map stays the map touch's: pan, pinch, waypoint)
                 l.add(hideControl());
@@ -484,7 +583,7 @@ final class TouchPad {
     /** Whether the sticks are off at time t: a screen from the library's word, a wheel outside the pad, or a wheel button of the pad held
      *  past its tap (the wheel is open). */
     boolean sticksBlocked(long t){
-        if(screens!=0 || wheelOutside || (mode!=Mode.PAD && overlay!=Overlay.PLAY))return true; // (the 360 pad ignores the overlays, as its layout does)
+        if(screens!=0 || wheelOutside || (mode!=Mode.PAD && overlay!=Overlay.PLAY && overlay!=Overlay.PHONE && !scriptMenu()))return true; // (touch map 11-22: the phone and a script menu keep the sticks) // (the 360 pad ignores the overlays, as its layout does)
         for(Finger f:fingers)if(f.control!=null && wheelKind(f.control.kind) && (t-f.downAt>TAP_MS || f.moved))return true;
         return false;
     }
@@ -555,11 +654,15 @@ final class TouchPad {
     /** The owner (2026-10-24 ~21:45): "the joystick circle pad on the fold can get stuck". Every MotionEvent lists every finger still down:
      *  a finger of the pad whose id is not among them lost its lift somewhere (a dropped POINTER_UP, a gesture taken by the system) and is
      *  released now. Returns how many were released. */
-    int retain(int[] ids,long t){
+    int retain(int[] ids,long t){return retain(ids,ids.length,t);}
+    /** The first count ids are the event's; no allocation (every move event calls it: touch map 11-22). */
+    int retain(int[] ids,int count,long t){
         int n=0;
-        for(Finger f:new ArrayList<>(fingers)){
-            boolean present=false;for(int id:ids)if(id==f.id){present=true;break;}
-            if(!present){fingers.remove(f);release(f,t);++n;}
+        for(int i=fingers.size()-1;i>=0;--i){
+            if(i>=fingers.size())continue; // (a release below may have dropped more than one)
+            final Finger f=fingers.get(i);
+            boolean present=false;for(int k=0;k<count;++k)if(ids[k]==f.id){present=true;break;}
+            if(!present){fingers.remove(i);release(f,t);++n;}
         }
         return n;
     }

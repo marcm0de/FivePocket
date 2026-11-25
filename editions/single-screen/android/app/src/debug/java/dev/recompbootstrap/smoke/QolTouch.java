@@ -195,6 +195,7 @@ final class QolTouch implements View.OnTouchListener {
          if(had!=pad.imenuButton())Log.i(TAG,"TOUCH_PAD interaction menu button "+(pad.imenuButton()?"shown":"hidden")+" (trainer state "+(trainer==-100?"none":Integer.toHexString(trainer))+", sandbox launch "+sandboxLaunch+")");}
         final int phone=PrivateTraceActivity.phoneState(); // (SPEC 3.15: bit 0 the phone is up; -100: no export)
         pad.phone(phone);
+        if(pad.player()!=playerLogged){playerLogged=pad.player();Log.i(TAG,"TOUCH_PLAYER state="+Integer.toHexString(playerLogged)+" (swim 1, under 2, free fall 4, canopy 8, cover 10; phone word "+Integer.toHexString(phone)+")");}
         pad.contextWord(word);g.pauseMap(pad.mapShown()); // (3.11: double taps are the map's while it is shown)
         if(++polls%20==0){
             final boolean had=pad.nextWeapon;pad.nextWeapon=PrivateTraceActivity.trainerList(4,-1,null)>=TouchPad.NEXT_WEAPON_MIN_ACTIONS; // (item 2: action 22 in the library, every ~2 s)
@@ -257,16 +258,38 @@ final class QolTouch implements View.OnTouchListener {
     static final TouchLatency drawUs=new TouchLatency();
     private int gestureMoves;
     @Override public boolean onTouch(View view,MotionEvent e){
-        final long started=System.nanoTime();
+        final long started=System.nanoTime(),cpu0=android.os.Debug.threadCpuTimeNanos();
         try{return route(view,e);}
-        finally{handlerUs.add((System.nanoTime()-started)/1000);}
+        finally{
+            final long us=(System.nanoTime()-started)/1000;handlerUs.add(us);
+            // (11-22 touchmap2: moves of 2-7.8 ms with no redraw - this thread's CPU time beside the wall time says whether it is our code or
+            //  the thread waiting / preempted by the game's threads)
+            final long cpuUs=(android.os.Debug.threadCpuTimeNanos()-cpu0)/1000;if(cpuUs>cpuMaxUs)cpuMaxUs=cpuUs;if(us-cpuUs>waitMaxUs)waitMaxUs=us-cpuUs;
+            // (touch map 11-22: which event is slow - the 11-22 swipe run had 15/45 gestures with one event > 2 ms; before this split an UP's own
+            //  time, its summary logging included, landed in the NEXT gesture's numbers. The summary is now logged after its UP is counted.)
+            final int act=e.getActionMasked();
+            if(act==MotionEvent.ACTION_MOVE){if(us>moveMaxUs)moveMaxUs=us;} else if(act==MotionEvent.ACTION_DOWN || act==MotionEvent.ACTION_POINTER_DOWN){if(us>downMaxUs)downMaxUs=us;}
+            else if(us>upMaxUs)upMaxUs=us;
+            if(act==MotionEvent.ACTION_UP || act==MotionEvent.ACTION_CANCEL)gestureSummary();
+        }
+    }
+    private long moveMaxUs,downMaxUs,upMaxUs,cpuMaxUs,waitMaxUs;
+    private int playerLogged;
+    private final int[] idBuf=new int[16]; // (the stale-finger watchdog's ids, reused: no allocation per move)
+    private void gestureSummary(){
+        final String lat=moveAges.take();
+        if(lat!=null)Log.i(TAG,"TOUCH_LAT "+lat+" unbuffered="+(unbuffered?1:0)+" (touch input)");
+        final String hs=handlerUs.take("events","us"),ds=drawUs.take("draws","us");
+        Log.i(TAG,"TOUCH_PERF handler "+hs+" | overlay "+(ds==null?"draws=0":ds)+" | moves="+gestureMoves+" redraw_skipped="+skippedMoves+
+              " | max_us down="+downMaxUs+" move="+moveMaxUs+" up="+upMaxUs+" | cpu_max_us="+cpuMaxUs+" wait_max_us="+waitMaxUs+" (touch input)");
+        gestureMoves=0;skippedMoves=0;moveMaxUs=downMaxUs=upMaxUs=0;cpuMaxUs=waitMaxUs=0;
     }
     private boolean route(View view,MotionEvent e){
         if(routeMenu(e))return true; // side-menu
         final long t=e.getEventTime();block(SystemClock.uptimeMillis());
         if(e.getActionMasked()!=MotionEvent.ACTION_DOWN && e.getActionMasked()!=MotionEvent.ACTION_CANCEL){ // (the stale-finger watchdog)
-            final int[] ids=new int[e.getPointerCount()];for(int k=0;k<ids.length;++k)ids[k]=e.getPointerId(k);
-            final int n=pad.retain(ids,t);
+            final int pc=e.getPointerCount();final int[] ids=pc<=idBuf.length?idBuf:new int[pc];for(int k=0;k<pc;++k)ids[k]=e.getPointerId(k);
+            final int n=pad.retain(ids,pc,t);
             if(n>0)Log.i(TAG,"TOUCH_PAD stale fingers released n="+n+" (not in the event: a lost lift) (touch input)");
         }
         final float w=view.getWidth(),h=view.getHeight();
@@ -327,11 +350,6 @@ final class QolTouch implements View.OnTouchListener {
         if(padDown!=null)Log.i(TAG,"TOUCH_PAD down "+padDown+" event_to_publish_ms="+(SystemClock.uptimeMillis()-t)+" (touch input)"); // (latency: published by after())
         final int act=e.getActionMasked();
         if(act==MotionEvent.ACTION_MOVE){moveAges.add(SystemClock.uptimeMillis()-t);++gestureMoves;if(drawnKey==keyBeforeAfter)++skippedMoves;} // (touch optimizations: the move's age at the publish)
-        else if(act==MotionEvent.ACTION_UP || act==MotionEvent.ACTION_CANCEL){final String lat=moveAges.take();
-            if(lat!=null)Log.i(TAG,"TOUCH_LAT "+lat+" unbuffered="+(unbuffered?1:0)+" (touch input)");
-            final String hs=handlerUs.take("events","us"),ds=drawUs.take("draws","us");
-            Log.i(TAG,"TOUCH_PERF handler "+hs+" | overlay "+(ds==null?"draws=0":ds)+" | moves="+gestureMoves+" redraw_skipped="+skippedMoves+" (touch input)");
-            gestureMoves=0;skippedMoves=0;}
         return true;
     }
     /** A stick's lift (the stuck-stick report: every stick touch now has a down and an up line). */

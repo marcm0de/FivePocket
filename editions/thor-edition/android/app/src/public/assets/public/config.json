@@ -1,11 +1,11 @@
 {
   "schema": "gta5-ship-config/1",
-  "build": "v1922-fivepocket-thor-3",
+  "build": "v1971-fivepocket-thor-3",
   "filesRoot": "/data/user/0/dev.recompbootstrap.smoke.thor/files",
   "library": {
     "asset": "ship/game-library.bin",
-    "size": 336652408,
-    "sha256": "f26f86ceae9b59d152e3d51809ff4adaf04cf649fcf939ed51b24e99035beeaf"
+    "size": 336748200,
+    "sha256": "9f77c6c8e8134cb9921a1f5048d9d3826a72dc81e32ff2d323248d1e291f25cf"
   },
   "shaderPack": {
     "asset": "ship/shader-pack.bin",
@@ -221,8 +221,8 @@
     },
     {
       "path": "modules/boot/store/dataflow.spv",
-      "size": 8964,
-      "sha256": "b1b44cabdafe8639ed69ee0017d7f25820d44c06602ef605745343703ca2e508"
+      "size": 8776,
+      "sha256": "df06253a45ddb44034b8599bfbb7ec8483be2f002890414c004a9ea84185f6bf"
     },
     {
       "path": "modules/boot/copy/dataflow.spv",
@@ -359,8 +359,8 @@
     {
       "asset": "ship/pieces/modules/boot/store/dataflow.spv",
       "path": "modules/boot/store/dataflow.spv",
-      "size": 8964,
-      "sha256": "b1b44cabdafe8639ed69ee0017d7f25820d44c06602ef605745343703ca2e508"
+      "size": 8776,
+      "sha256": "df06253a45ddb44034b8599bfbb7ec8483be2f002890414c004a9ea84185f6bf"
     },
     {
       "asset": "ship/pieces/modules/boot/copy/dataflow.spv",
@@ -421,6 +421,13 @@
       "path": "decoded.image.bin",
       "size": 31162368,
       "sha256": "0b1c81507f827c29a7dccf5fc58dc23c8142ff4177efe66df21c790a8f65f3b2"
+    }
+  ],
+  "acceptedOlderPieces": [
+    {
+      "path": "modules/boot/store/dataflow.spv",
+      "size": 8964,
+      "sha256": "b1b44cabdafe8639ed69ee0017d7f25820d44c06602ef605745343703ca2e508"
     }
   ]
 }

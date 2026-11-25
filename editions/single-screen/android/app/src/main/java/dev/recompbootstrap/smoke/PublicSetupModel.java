@@ -11,6 +11,8 @@ final class PublicSetupModel {
     /** This app version's game code is not in place (ShipReady CODE or PIECE): what the activation after an import does.
      *  Missing disc files (DATA) are the disc page's work, not this row's. */
     boolean codeMissing;
+    /** The installed bundle carries an earlier builder's piece the app still accepts (PublicGameCode.olderBuild): one quiet line. */
+    boolean olderBuild;
     /** The first row's action: with a valid import and the code not in place, finish setup from that import instead of
      *  asking for the file again (Thor RC1.1 device test, 2026-10-25: a failed activation left the import, and only a
      *  second pick of the same file finished it). */
@@ -51,6 +53,7 @@ final class PublicSetupModel {
         }
         p.rowFocused = focus;
         p.help.add(new MenuScenes.Line(notice, MenuScenes.TONE_NORMAL));
+        if (olderBuild && !busy) p.help.add(new MenuScenes.Line(PublicCodeWords.OLDER_BUILDER, MenuScenes.TONE_NORMAL));
         if (busy && total > 0) p.infoBar = Math.max(0f, Math.min(1f, (float)((double)done / total)));
         p.prompts.addAll(MenuScenes.legendPrompts(activating ? "" : busy ? "B Stop" : "A Select   B Back"));
         return p;

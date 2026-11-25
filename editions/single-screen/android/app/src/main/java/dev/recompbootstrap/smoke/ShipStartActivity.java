@@ -97,11 +97,18 @@ public final class ShipStartActivity extends Activity {
         final String apkPath = getApplicationInfo().sourceDir;
         final boolean gameRunning = gameRunning();
         final boolean force = fromLauncher;
+        final android.content.Context app = getApplicationContext();
         new Thread(new Runnable() {
             @Override public void run() {
-                if (!gameRunning && VerifiedExtractor.begin()) {   // 1.2.1: a replacement killed between its two renames: the old bundle back
+                AppIcon.reconcile(app);   // the launcher icon Settings > App icon saved (2026-11-22, owner)
+                // a menu-sound switch left by a launcher that died during the step (TU27 2026-11-24): only a stale one goes
+                if (MenuSoundsPrep.clearIfStale(filesDir, System.currentTimeMillis())) Log.i(TAG, "MENU_SOUNDS_PASS stale switch removed at start");
+                if (!gameRunning && VerifiedExtractor.begin()) {   // next update: never beside an import, never while the game runs
                     try {
-                        CodeBundleImporter.recoverSwap(InstallGuard.root(filesDir));
+                        CodeBundleImporter.recoverSwap(InstallGuard.root(filesDir));   // a replacement killed between its two renames
+                        BundleExtras.Result placed = BundleExtras.place(filesDir, PublicGameCode.updateDirectory(apkPath, filesDir));   // the bundle's TU/DLC parts not yet in place (update.rpf: its profile's folder)
+                        if (placed.problem != null) Log.w(TAG, "BUNDLE_EXTRAS not placed: " + placed.problem);
+                        else if (placed.packs > 0 || placed.update) Log.i(TAG, "BUNDLE_EXTRAS placed packs=" + placed.packs + " update=" + placed.update);
                     } finally {
                         VerifiedExtractor.end();
                     }

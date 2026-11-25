@@ -76,7 +76,23 @@ final class MenuSoundsPrep {
         return new File(dir(filesDir), DONE_FILE);
     }
 
-    /** The game window was started for the pass (the switch is there). */
+    /**
+     * A switch no running step stands behind (TU27 2026-11-24 on the Thor: a launcher that died, or a start that failed, during the step
+     * left it, and every later start of any mode became a pass, until the app's data was cleared): all five sounds are in place already
+     * (nothing to record), or it is older than the step's whole limit TIMEOUT_MS. nowMillis: the wall clock (the file's time base).
+     */
+    static boolean stale(File filesDir, long nowMillis) {
+        File f = switchFile(filesDir);
+        if (!f.isFile()) return false;
+        return found(filesDir) == MenuSounds.FILES.length || nowMillis - f.lastModified() > TIMEOUT_MS;
+    }
+
+    /** Removes a stale switch (see stale); true when one was removed. Never touches a switch a step may still be using. */
+    static boolean clearIfStale(File filesDir, long nowMillis) {
+        return stale(filesDir, nowMillis) && switchFile(filesDir).delete();
+    }
+
+    /** The game was started for the pass (the switch is there). */
     static boolean passRequested(File filesDir) {
         return switchFile(filesDir).isFile();
     }

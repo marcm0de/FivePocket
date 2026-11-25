@@ -67,6 +67,8 @@ final class Capabilities {
     static final String MY_MUSIC_MARKER = "recomp_my_music_v1";
     /** qol-fill: the build shrinks the HUD into the visible part when the app fills the screen (single-screen edition v712, qol_hud_fit.h). */
     static final String SCREEN_FILL_MARKER = "recomp-cap:qol-fill1";
+    /** Next update (DLC): the library takes --stfs-content-directory (v1357+, v1922 has it); an older one would get an argument it does not know. */
+    static final String STFS_MARKER = "--stfs-content-directory";
 
     static final String REASON_NO_LIBRARY = "Game code is not installed";
     static final String REASON_NOT_IN_BUILD = "Not in the installed game build";
@@ -116,6 +118,7 @@ final class Capabilities {
         SettingSpec spec = SettingsSchema.spec(key);
         if (!spec.valid(value)) return REASON_NOT_A_VALUE;
         if (value == spec.defaultValue) return null;
+        if (key.equals(SettingsSchema.APP_ICON)) return null;   // 2026-11-22: the app's own row (the launcher icon), with or without game code
         if (!libraryPresent) return REASON_NO_LIBRARY;
         if (key.equals(SettingsSchema.PERFORMANCE_PRESET)) return PerformancePresets.reason(this, value);
         if (key.equals(SettingsSchema.MY_MUSIC) || key.equals(SettingsSchema.MY_MUSIC_VOLUME) || key.equals(SettingsSchema.MY_MUSIC_ORDER)) {
@@ -163,6 +166,9 @@ final class Capabilities {
             // exports RUMBLE_EXPORT (rumble()), and the row's text says which (SettingsSchema.hint(key, value, capabilities))
             return null;
         }
+        if (key.equals(SettingsSchema.MENU_MUSIC)) {
+            return null; // (next update: the app's own launcher music; any game build)
+        }
         if (key.equals(SettingsSchema.SCREEN_FILL)) {
             return has(SCREEN_FILL_MARKER) ? null : REASON_NOT_IN_BUILD; // (Fill without the HUD shrink would cut the HUD off)
         }
@@ -170,7 +176,10 @@ final class Capabilities {
             return reads(RuntimeMapping.MODS_TXT) ? null : REASON_NOT_IN_BUILD; // (script-mods: the library reads settings/mods.txt)
         }
         if (key.equals(SettingsSchema.LANGUAGE)) {
-            return reads(RuntimeMapping.LANGUAGE_TXT) ? null : REASON_NOT_IN_BUILD; // (1.2.1: the library reads settings/language.txt, v1511+)
+            return reads(RuntimeMapping.LANGUAGE_TXT) ? null : REASON_NOT_IN_BUILD; // (2026-11-22: the library reads settings/language.txt, v1511+)
+        }
+        if (key.equals(SettingsSchema.DLC_PACKS)) {
+            return has(STFS_MARKER) ? null : REASON_NOT_IN_BUILD; // (the app writes the switch; only a library with the STFS content device)
         }
         if (key.equals(SettingsSchema.INPUT_UNBUFFERED)) {
             return inputOptionInApp ? null : REASON_INPUT;

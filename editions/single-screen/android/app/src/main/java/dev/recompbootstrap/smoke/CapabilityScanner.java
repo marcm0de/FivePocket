@@ -55,6 +55,7 @@ final class CapabilityScanner {
         names.add(ModsPage.LIBRARY_V2_MARKER); // (Update 1 Mods page: the per-mod words; the v2 export's name in .dynstr)
         names.add(Capabilities.SCREEN_FILL_MARKER);
         names.add(Capabilities.MY_MUSIC_MARKER); // (Update 1 P6: My Music)
+        names.add(Capabilities.STFS_MARKER); // (next update: the player's own DLC)
         return Collections.unmodifiableList(names);
     }
 

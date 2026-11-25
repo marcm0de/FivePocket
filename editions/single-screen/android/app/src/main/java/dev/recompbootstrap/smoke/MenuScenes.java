@@ -52,6 +52,8 @@ final class MenuScenes {
         /** Slider position 0..1; negative for a row without a bar. */
         float fraction = -1f;
         int valueTone;
+        /** 2026-11-22: a picture (the painter's name) drawn square, as tall as the row, just before the value (the App icon row's logo). */
+        String art;
     }
 
     static final class Prompt {
@@ -384,6 +386,13 @@ final class MenuScenes {
                 chevron(scene, right - valueWidth - CHEVRON_GAP - CHEVRON_W, chevronTop, CHEVRON_W, CHEVRON_H, CHEVRON_T, LEFTWARD,
                         row.canLeft ? SELECT_TEXT : 0x33000000);
                 labelRight -= CHEVRON_W + CHEVRON_GAP;
+            }
+            if (row.art != null) {   // 2026-11-22: the App icon row's logo, square and as tall as the row, before the value
+                float x = labelRight + ROW_PAD - ROW_H;
+                if (x > labelLeft + labelWidth + 2 * ROW_PAD) {
+                    scene.image(row.art, x, top, ROW_H, ROW_H);
+                    labelRight = x - 2 * ROW_PAD;
+                }
             }
         }
         if (row.restart && row.value != null) {

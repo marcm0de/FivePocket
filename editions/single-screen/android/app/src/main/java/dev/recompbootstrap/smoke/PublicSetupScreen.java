@@ -46,7 +46,16 @@ final class PublicSetupScreen implements Screen {
             model.ready = state.ready();
             model.codeMissing = state.stands == ShipReady.Stands.CODE || state.stands == ShipReady.Stands.PIECE;
             model.imported = importedValid(apk);
+            model.olderBuild = model.imported && olderBuild(apk);   // (the quiet rebuild line, lead 2026-11-24)
         }, this::render);
+    }
+    /** The imported bundle is an earlier builder's the app still accepts (PublicGameCode.olderBuild). */
+    private boolean olderBuild(String apk) {
+        try (ShipBundle source = PublicGameCode.open(apk, host.filesDir())) {
+            return source instanceof PublicGameCode && ((PublicGameCode) source).olderBuild();
+        } catch (IOException | RuntimeException e) {
+            return false;
+        }
     }
     /** An imported bundle is on this device and passes the app's check against its own record. */
     private boolean importedValid(String apk) {
@@ -68,6 +77,11 @@ final class PublicSetupScreen implements Screen {
                 if (!(source instanceof PublicGameCode)) { activation[0] = PublicCodeWords.APP_RECORD; return; }
                 try { seal[0] = PublicGameCode.seal(InstallGuard.root(host.filesDir())); } catch (IOException e) { seal[0] = null; }
                 activation[0] = ((PublicGameCode) source).activate((step, d, t) -> { done = d; total = t; });
+                if (((PublicGameCode) source).lastActivationReason != null)
+                    android.util.Log.w(ShipLog.TAG, "ACTIVATION_REFUSED " + ((PublicGameCode) source).lastActivationReason);
+                if (activation[0] == null) {   // next update: the bundle's icon pick and DLC, now that its game code is in place
+                    AppIcon.afterActivation(host.activity().getApplicationContext(), () -> host.gameRunning(), SettingsScreen.inputOptionInApp());
+                }
             } catch (IOException | RuntimeException e) {
                 activation[0] = PublicCodeWords.STORAGE;
             }
@@ -117,13 +131,19 @@ final class PublicSetupScreen implements Screen {
                 outcome[0] = CodeBundleImporter.importPublic(in, InstallGuard.root(host.filesDir()), new VerifiedExtractor.Progress() {
                     public void update(long d, long t, int f, int fs, String path) { done = d; total = t; }
                     public boolean cancelled() { return cancel; }
-                }, SetupCatalog.spec(), VerifiedExtractor.DISK, code.config);
+                }, SetupCatalog.spec(), VerifiedExtractor.DISK, code.configs());   // every pinned profile: the bundle selects one
                 if (outcome[0].complete) {
                     try { seal[0] = PublicGameCode.seal(InstallGuard.root(host.filesDir())); } catch (IOException e) { seal[0] = null; }
                 }
                 if (outcome[0].complete && !cancel) {
                     if (host.gameRunning()) activation[0] = PublicCodeWords.RUNNING;
-                    else activation[0] = code.activate((step, d, t) -> { done = d; total = t; });
+                    else {
+                        activation[0] = code.activate((step, d, t) -> { done = d; total = t; });
+                        if (code.lastActivationReason != null) android.util.Log.w(ShipLog.TAG, "ACTIVATION_REFUSED " + code.lastActivationReason);
+                    }
+                    if (activation[0] == null) {   // the new game code is in place: the bundle's icon pick and DLC (next update)
+                        AppIcon.afterActivation(host.activity().getApplicationContext(), () -> host.gameRunning(), SettingsScreen.inputOptionInApp());
+                    }
                 } else if (outcome[0].complete) activation[0] = "Choose Install Game Code again to finish setting up.";
             } catch (IOException | RuntimeException e) {
                 outcome[0] = VerifiedExtractor.Outcome.failed(VerifiedExtractor.Problem.SOURCE_UNREADABLE, PublicCodeWords.READ);

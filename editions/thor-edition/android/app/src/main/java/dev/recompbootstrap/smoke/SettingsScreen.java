@@ -3,6 +3,7 @@ package dev.recompbootstrap.smoke;
 import android.app.Activity;
 import android.content.ContentResolver;
 import android.content.Intent;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.DocumentsContract;
@@ -61,7 +62,7 @@ final class SettingsScreen {
 
     /** True while every command belongs to the model: a question is open or a save is running. */
     boolean capturing() {
-        return saving || savesBusy || model.overlay() != MenuModel.OVERLAY_NONE || model.pendingAction() != MenuModel.ACTION_NONE;
+        return saving || savesBusy || addingDlc || model.overlay() != MenuModel.OVERLAY_NONE || model.pendingAction() != MenuModel.ACTION_NONE;
     }
 
     /** True when the highlight can go from the category's name into its rows. */
@@ -95,6 +96,8 @@ final class SettingsScreen {
             owner.render();
         } else if (command == NavInput.CONFIRM && modsPageAsked(model.focused())) {
             host.push(new ModsScreen(owner.modsWarning()));   // Update 1: A on Script mods opens the Mods page
+        } else if (command == NavInput.CONFIRM && dlcAddAsked(model.focused())) {
+            addDlc();   // next update: A on the DLC row adds the player's own packs from a folder
         } else if (command == NavInput.LEFT || command == NavInput.RIGHT || command == NavInput.CONFIRM) {
             forward(command, repeat);
         }
@@ -108,7 +111,7 @@ final class SettingsScreen {
         return row >= 0 && SettingsSchema.SCRIPT_MODS.equals(model.rowKey(row)) && model.rowEnabled(row) && !dirty() && !capturing();
     }
 
-    // ------------------------------------------------------------------------------------------ save export / import (1.2.1)
+    // ------------------------------------------------------------------------------------------ save export / import (next update)
 
     static final int REQUEST_EXPORT_SAVES = 0x5A1, REQUEST_IMPORT_SAVES = 0x5A2;
     static final String TEXT_SAVES_GAME_RUNNING = "Close the game first: it writes its saves while it runs.",
@@ -229,10 +232,106 @@ final class SettingsScreen {
         return new java.text.SimpleDateFormat(pattern, java.util.Locale.ROOT).format(new java.util.Date());
     }
 
+    // ------------------------------------------------------------------------------------------ Add DLC (next update)
+
+    static final int REQUEST_DLC = 0xD1C;
+    static final String TEXT_DLC_ADDING = "Adding DLC\u2026", TEXT_DLC_GAME_RUNNING = "Stop the game first: it reads the DLC folder while it runs.",
+            TEXT_DLC_SWITCH_ON = " Switch DLC on and save to use them.";
+    private boolean addingDlc;
+
+    /** A (or a tap) on the highlighted DLC row opens the folder picker; LEFT / RIGHT still switch the row. Only with nothing unsaved. */
+    private boolean dlcAddAsked(int row) {
+        return row >= 0 && SettingsSchema.DLC_PACKS.equals(model.rowKey(row)) && model.rowEnabled(row) && !dirty() && !capturing() && !addingDlc;
+    }
+
+    private void addDlc() {
+        if (host.gameRunning()) {
+            model.note(TEXT_DLC_GAME_RUNNING);
+            owner.render();
+            return;
+        }
+        host.startForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).putExtra(Intent.EXTRA_LOCAL_ONLY, true), REQUEST_DLC);
+    }
+
+    /** The picker's answer: the chosen folder's package files are copied by DlcImport (pure Java, tested), off the UI thread. */
     void onActivityResult(int requestCode, int resultCode, Intent data) {
         if (requestCode == REQUEST_EXPORT_SAVES || requestCode == REQUEST_IMPORT_SAVES) {
             savesPicked(requestCode, resultCode == Activity.RESULT_OK && data != null ? data.getData() : null);
+            return;
         }
+        if (requestCode != REQUEST_DLC) return;
+        final Uri tree = resultCode == Activity.RESULT_OK && data != null ? data.getData() : null;
+        if (tree == null) return;   // closed without a choice: nothing changes
+        if (!ModsImport.localProvider(tree.getAuthority())) {
+            model.note(ModsImport.TEXT_CLOUD);
+            owner.render();
+            return;
+        }
+        final File filesDir = host.filesDir();
+        final ContentResolver resolver = host.activity().getContentResolver();
+        final boolean rowOn = rowValueOn(SettingsSchema.DLC_PACKS);
+        final String[] sentence = new String[1];
+        addingDlc = true;
+        model.note(TEXT_DLC_ADDING);
+        owner.render();
+        host.background(new Runnable() {
+            @Override public void run() {
+                try {
+                    DlcImport.Result r = DlcImport.run(new File(filesDir, "private-trace"), documents(resolver, tree), filesDir.getUsableSpace(), null);
+                    sentence[0] = r.sentence + (r.ok && r.added > 0 && !rowOn ? TEXT_DLC_SWITCH_ON : "");
+                } catch (IOException | RuntimeException e) {
+                    sentence[0] = "The DLC could not be added (" + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()) + ").";
+                }
+            }
+        }, new Runnable() {
+            @Override public void run() {
+                addingDlc = false;
+                model.note(sentence[0]);
+                owner.render();
+            }
+        });
+    }
+
+    private boolean rowValueOn(String key) {
+        for (int i = 0; i < model.rowCount(); ++i) if (key.equals(model.rowKey(i))) return "On".equals(model.rowValue(i));
+        return false;
+    }
+
+    /** The chosen folder's documents (one level: packages sit side by side), each opened only when DlcImport copies it. */
+    private static java.util.List<DlcImport.Doc> documents(final ContentResolver resolver, final Uri tree) throws IOException {
+        java.util.List<DlcImport.Doc> docs = new java.util.ArrayList<DlcImport.Doc>();
+        Cursor cursor;
+        try {
+            cursor = resolver.query(DocumentsContract.buildChildDocumentsUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree)),
+                    new String[] {DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                            DocumentsContract.Document.COLUMN_MIME_TYPE, DocumentsContract.Document.COLUMN_SIZE, DocumentsContract.Document.COLUMN_FLAGS},
+                    null, null, null);
+        } catch (RuntimeException e) {
+            throw new IOException("the folder cannot be listed");
+        }
+        if (cursor == null) throw new IOException("the folder cannot be listed");
+        try {
+            while (cursor.moveToNext()) {
+                final String id = cursor.getString(0), name = cursor.getString(1), mime = cursor.getString(2);
+                final long size = cursor.isNull(3) ? -1 : cursor.getLong(3);
+                int flags = cursor.isNull(4) ? 0 : cursor.getInt(4);
+                if (id == null || name == null || DocumentsContract.Document.MIME_TYPE_DIR.equals(mime)) continue;
+                if ((flags & DocumentsContract.Document.FLAG_VIRTUAL_DOCUMENT) != 0) throw new IOException(ModsImport.TEXT_CLOUD);
+                final Uri document = DocumentsContract.buildDocumentUriUsingTree(tree, id);
+                docs.add(new DlcImport.Doc() {
+                    @Override public String name() { return name; }
+                    @Override public long size() { return size; }
+                    @Override public java.io.InputStream open() throws IOException {
+                        java.io.InputStream in = resolver.openInputStream(document);
+                        if (in == null) throw new IOException("the file cannot be opened");
+                        return in;
+                    }
+                });
+            }
+        } finally {
+            cursor.close();
+        }
+        return docs;
     }
 
     /** The highlight goes from the category's name into its rows. */
@@ -262,6 +361,10 @@ final class SettingsScreen {
                 host.push(new ModsScreen(owner.modsWarning()));
                 return true;
             }
+            if (index >= 0 && index < rows.length && rows[index] == model.focused() && dlcAddAsked(rows[index])) {   // (next update: as A)
+                addDlc();
+                return true;
+            }
         }
         if (!pages.tap(model, nav, base, index)) return false;
         settle();
@@ -278,7 +381,7 @@ final class SettingsScreen {
         int action = model.pendingAction();
         if (action == MenuModel.ACTION_EXPORT_SAVES || action == MenuModel.ACTION_IMPORT_SAVES || action == MenuModel.ACTION_IMPORT_CONFIRMED) {
             model.actionTaken();
-            savesAction(action);   // 1.2.1: save export / import
+            savesAction(action);   // next update: save export / import
             owner.render();
             return;
         }
@@ -366,6 +469,20 @@ final class SettingsScreen {
         }, new Runnable() {
             @Override public void run() {
                 saving = false;
+                if (result[0] != null && result[0].ok && host.activity() instanceof BootstrapActivity) {
+                    ((BootstrapActivity) host.activity()).menuMusicChanged();   // (next update: Menu music takes effect at once)
+                }
+                if (result[0] != null && result[0].ok) {   // 2026-11-22: the App icon row takes effect at once (AppIcon reads what was saved)
+                    final android.content.Context app = host.activity().getApplicationContext();
+                    host.background(new Runnable() {
+                        @Override public void run() {
+                            AppIcon.reconcile(app);
+                        }
+                    }, new Runnable() {
+                        @Override public void run() {
+                        }
+                    });
+                }
                 if (result[0] != null) model.saveFinished(result[0].ok, result[0].refusedGameRunning, result[0].error);
                 else model.saveFinished(false, false, failure[0]);
                 if (MenuModel.TEXT_SAVED.equals(model.status()) && timerView != null) {

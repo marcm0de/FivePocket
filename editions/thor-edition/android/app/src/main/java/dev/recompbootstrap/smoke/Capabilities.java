@@ -57,6 +57,8 @@ final class Capabilities {
     static final String CAMERA_TURN_EXPORT = "recomp_camera_turn_v1";
     /** Update 1 P6: a game library with My Music exports recomp_my_music_v1 (its name stands in the library's symbol table). */
     static final String MY_MUSIC_MARKER = "recomp_my_music_v1";
+    /** Next update (DLC): the library takes --stfs-content-directory (v1357+, v1922 has it); an older one would get an argument it does not know. */
+    static final String STFS_MARKER = "--stfs-content-directory";
     /** Thor edition: the word of second-screen.txt that keeps the game's own weapon wheel (a build with the lower-screen wheel holds it). */
     static final String WHEEL_MAIN_WORD = "wheel=main";
     static final String RADIO_MAIN_WORD = "radio=main"; // (Thor edition, thor-radio: game builds from v651)
@@ -111,6 +113,7 @@ final class Capabilities {
         SettingSpec spec = SettingsSchema.spec(key);
         if (!spec.valid(value)) return REASON_NOT_A_VALUE;
         if (value == spec.defaultValue) return null;
+        if (key.equals(SettingsSchema.APP_ICON)) return null;   // 2026-11-22: the app's own row (the launcher icon), with or without game code
         if (!libraryPresent) return REASON_NO_LIBRARY;
         if (key.equals(SettingsSchema.PERFORMANCE_PRESET)) return PerformancePresets.reason(this, value);
         if (key.equals(SettingsSchema.MY_MUSIC) || key.equals(SettingsSchema.MY_MUSIC_VOLUME) || key.equals(SettingsSchema.MY_MUSIC_ORDER)) {
@@ -179,8 +182,14 @@ final class Capabilities {
         if (key.equals(SettingsSchema.SCRIPT_MODS)) {
             return reads(RuntimeMapping.MODS_TXT) ? null : REASON_NOT_IN_BUILD; // (script-mods: the library reads settings/mods.txt)
         }
+        if (key.equals(SettingsSchema.MENU_MUSIC)) {
+            return null; // (next update: the app's own launcher music; any game build)
+        }
         if (key.equals(SettingsSchema.LANGUAGE)) {
-            return reads(RuntimeMapping.LANGUAGE_TXT) ? null : REASON_NOT_IN_BUILD; // (1.2.1: the library reads settings/language.txt, v1511+)
+            return reads(RuntimeMapping.LANGUAGE_TXT) ? null : REASON_NOT_IN_BUILD; // (2026-11-22: the library reads settings/language.txt, v1511+)
+        }
+        if (key.equals(SettingsSchema.DLC_PACKS)) {
+            return has(STFS_MARKER) ? null : REASON_NOT_IN_BUILD; // (the app writes the switch; only a library with the STFS content device)
         }
         if (key.equals(SettingsSchema.LOWER_SCREEN)) {
             // Thor edition (v820): read by this app; it matters only with a game build that has the lower screen (second-screen.txt)

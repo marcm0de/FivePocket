@@ -654,7 +654,13 @@ final class MoreNotices {
             + "FFmpeg is free software under the GNU Lesser General Public License, version 2.1 or later; the full text of\n"
             + "version 2.1 is at the end of these notices. You may obtain the source code of the FFmpeg libraries used here,\n"
             + "change them and use your changed version with the game code. FFmpeg is a trademark of Fabrice Bellard,\n"
-            + "originator of the FFmpeg project. This app is not part of FFmpeg and is not endorsed by it.\n";
+            + "originator of the FFmpeg project. This app is not part of FFmpeg and is not endorsed by it.\n"
+            + MoreNotices.FFMPEG_CHANGE;
+    /** 1.3.0 (COR-02; builder notices/game-library-parts.md): the LGPL 2.1 section 2a notice of the one changed FFmpeg file. It must
+     *  name the file, so ShipWordsTest lifts it out with the licence texts before its no-source-file rule reads the rest. */
+    static final String FFMPEG_CHANGE = "One file is changed by this project: libavcodec/wmaprodec.c gains a flush callback for the raw-frames XMA\n"
+            + "decoder, so that a flushed decoder starts the next sound as a newly opened one does. The whole change is\n"
+            + "tools/own_disc/xma_decoder/cor02/xmaframes-flush.patch in the builder; the changed file is beside it.\n";
     static final String NDK_WORDS = "Android NDK runtime libraries\n"
             + "The C++ runtime this app carries. Part of the LLVM project (https://llvm.org); licensed under the Apache\n"
             + "License, Version 2.0, with LLVM Exceptions.\n";

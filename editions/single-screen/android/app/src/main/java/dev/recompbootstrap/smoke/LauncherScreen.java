@@ -580,6 +580,6 @@ final class LauncherScreen implements Screen, UiKit.Listener {
     }
 
     @Override public void onActivityResult(int requestCode, int resultCode, Intent data) {
-        if (settings != null) settings.onActivityResult(requestCode, resultCode, data);   // (1.2.1: save export / import)
+        if (settings != null) settings.onActivityResult(requestCode, resultCode, data);   // (next update: Settings' Add DLC folder)
     }
 }

@@ -58,6 +58,13 @@ public final class BootstrapActivity extends Activity {
 
     /** 2026-11-17: the game's own menu sounds from the player's files/ui/sounds (MenuSounds), silent where a file is missing. */
     private UiSounds menuSounds;
+    /** Next update (2026-11-24): the game's launcher music on loop while the launcher is on screen (MenuMusic); launcher mode only. */
+    private MenuMusicPlayer menuMusic;
+
+    /** Next update: a Settings save may have switched Menu music on or off (the Settings page is inside the launcher screen). */
+    void menuMusicChanged() {
+        if (menuMusic != null) menuMusic.refresh();
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -67,6 +74,7 @@ public final class BootstrapActivity extends Activity {
         if (!ScreenStack.smokeRequested(new IntentExtras())) {
             // Launcher mode. NativeBridge is not touched on this path, so the self-test library is not loaded.
             launcher = new LauncherHost();
+            try { menuMusic = new MenuMusicPlayer(this); } catch (RuntimeException e) { menuMusic = null; }
             launcher.create(savedInstanceState == null ? null : savedInstanceState.getString(ScreenStack.AWAITING_KEY));
             return;
         }
@@ -219,6 +227,7 @@ public final class BootstrapActivity extends Activity {
         if (launcher != null) {
             launcher.resumed();
         }
+        if (menuMusic != null) menuMusic.resumed();
     }
 
     /**
@@ -250,6 +259,7 @@ public final class BootstrapActivity extends Activity {
         if (launcher != null) {
             launcher.paused();
         }
+        if (menuMusic != null) menuMusic.paused();   // the game starting, Home or another app: fade out and stop
         if (selfTest != null) {
             selfTest.pause();
         }
@@ -266,6 +276,7 @@ public final class BootstrapActivity extends Activity {
             selfTestUi.clear();
         }
         if (menuSounds != null) { menuSounds.release(); menuSounds = null; }
+        if (menuMusic != null) { menuMusic.release(); menuMusic = null; }
         super.onDestroy();
     }
 
@@ -684,6 +695,7 @@ public final class BootstrapActivity extends Activity {
                 view.setVisibility(View.VISIBLE);
             }
             screen.onShown();
+            if (menuMusic != null) menuMusic.refresh();   // (back from Settings: the Menu music switch may have changed)
         }
 
         @Override public void hidden(Screen screen) {

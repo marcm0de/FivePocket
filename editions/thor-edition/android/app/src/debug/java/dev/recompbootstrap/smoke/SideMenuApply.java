@@ -16,6 +16,9 @@ final class SideMenuApply {
         default void hapticsChanged(int mode){}        // Update 1 haptics: Haptics.setMode (the saved Vibration value)
         default void menuWords(int holdSelect){}      // Update 1: settings/menu.txt (MenuWords: other words kept), applied at once
         default void quickMenuStyle(int style){}      // Update 1: settings/quick-menu.txt, then recomp_imenu_v1(3|4) once (applied at once)
+        /** 2026-11-09: a short notice over the game ("+$100,000" after Add Cash), with the confirm sound. (Owner Thor line qol25e; restored
+         *  2026-11-24: the owner variant check found it missing in the next update.) */
+        default void notice(String text){}
         /** Update 1 (main): open the game's own Interaction Menu (recomp_imenu_v1(5)): >= 0 accepted, -3 no local session, other < 0 not in
          *  this build (old libraries: -2 for op 5, -100 without the export). */
         default int gameInteractionMenu(){return -2;}
@@ -62,6 +65,8 @@ final class SideMenuApply {
         if(rows.trainer==null)return false;
         final String raw=rows.trainer.status();
         final int[] then=rows.online.afterSwitch(raw,rows.trainer.state()); // (the saved look after a switch to an online character: OnlineMenu.afterSwitch)
+        final String cash=rows.online.cashDone(raw); // (2026-11-09: Add Cash done: "+$N")
+        if(cash!=null)fx.notice(cash);
         boolean closed=false;
         if(rows.close.waiting()){
             if(menu==null || !menu.isOpen())rows.close.menuClosed();

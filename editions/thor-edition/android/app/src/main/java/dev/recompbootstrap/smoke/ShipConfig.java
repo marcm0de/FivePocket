@@ -114,10 +114,35 @@ final class ShipConfig {
     final List<DataFile> notBundled;
     /** SHA-256 of the config file's bytes. */
     final String sha256;
+    /**
+     * One app, two pinned profiles (owner 2026-11-24): the game program a title-update profile runs, or null for the disc's own
+     * ("titleExecutable" in the record). When set, inputs/(it).bin is a pinned piece the bundle carries (its title-xex), and an
+     * imported bundle naming that program selects this profile (PublicGameCode).
+     */
+    final String titleExecutable;
+    /** Where the bundle's update.rpf goes, relative to files/private-trace (BundleExtras): "updateDirectory", default DEFAULT_UPDATE_DIRECTORY. */
+    final String updateDirectory;
+    static final String DEFAULT_UPDATE_DIRECTORY = "inputs/native-update";
+    /**
+     * Older bytes this profile still accepts for a piece the bundle carries ("acceptedOlderPieces": path, size, sha256), so that an earlier
+     * builder's bundle keeps working (lead 2026-11-24: the 1.2.0 boot store module beside the intro-movie fix's). A bundle that carries
+     * them runs with them (PublicGameCode serves the record with that pin); never a content-named file, the image or the program.
+     */
+    final List<DataFile> olderPieces;
+
+    /** The older bytes accepted for this path, or null. */
+    DataFile older(String path) {
+        for (DataFile f : olderPieces) if (f.path.equals(path)) return f;
+        return null;
+    }
 
     private ShipConfig(String build, String filesRoot, Piece library, Piece shaderPack, String shaderPackName,
             Piece startRequest, String runId, List<String> switches, List<String> directories,
-            List<String> requiredInputs, List<DataFile> pinnedData, List<BundledData> bundledData, String sha256) {
+            List<String> requiredInputs, List<DataFile> pinnedData, List<BundledData> bundledData, String sha256, String titleExecutable,
+            String updateDirectory, List<DataFile> olderPieces) {
+        this.olderPieces = Collections.unmodifiableList(olderPieces);
+        this.titleExecutable = titleExecutable;
+        this.updateDirectory = updateDirectory;
         this.build = build;
         this.filesRoot = filesRoot;
         this.library = library;
@@ -235,8 +260,10 @@ final class ShipConfig {
                 long bytes = number(entry.get("size"), "size of " + path);
                 String sha = text(entry.get("sha256"), "sha256 of " + path);
                 if (!ShipFiles.isSha256(sha)) throw bad("the SHA-256 of " + path + " is not 64 hex digits");
-                String named = ShipDataManifest.inputHash(path);
-                if (named != null && !named.equals(sha)) throw bad(path + " is pinned with another SHA-256 than its name");
+                String named = ShipDataManifest.inputHash(path), prefix = ShipDataManifest.supplementHashPrefix(path);
+                if ((named != null && !named.equals(sha)) || (prefix != null && !sha.startsWith(prefix))) {
+                    throw bad(path + " is pinned with another SHA-256 than its name");
+                }
                 pinned.add(new DataFile(path, bytes, sha));
                 pinnedPaths.add(path);
             }
@@ -284,8 +311,45 @@ final class ShipConfig {
             }
             requireDistinct(bundledPaths, "bundled piece");
         }
+        // One app, two pinned profiles: the profile's own program (a title update's), pinned and carried by the bundle
+        String titleExecutable = null;
+        if (map.get("titleExecutable") != null) {
+            titleExecutable = text(map.get("titleExecutable"), "titleExecutable");
+            if (!ShipFiles.isSha256(titleExecutable)) throw bad("titleExecutable is not 64 hex digits");
+            if (!bundledPaths.contains(ShipDataManifest.INPUTS + titleExecutable + ".bin")) {
+                throw bad("titleExecutable is not a pinned piece the bundle carries (" + ShipDataManifest.INPUTS + titleExecutable + ".bin)");
+            }
+        }
+        String updateDirectory = DEFAULT_UPDATE_DIRECTORY;
+        if (map.get("updateDirectory") != null) {
+            updateDirectory = text(map.get("updateDirectory"), "updateDirectory");
+            if (!updateDirectory.startsWith(ShipDataManifest.INPUTS) || !directories.contains(updateDirectory)) {
+                throw bad("updateDirectory is not one of its directories under inputs/: " + updateDirectory);
+            }
+        }
+        List<DataFile> older = new ArrayList<DataFile>();
+        if (map.get("acceptedOlderPieces") != null) {
+            List<String> olderPaths = new ArrayList<String>();
+            for (Object o : list(map.get("acceptedOlderPieces"), "acceptedOlderPieces")) {
+                Map<?, ?> entry = object(o, "an accepted older piece");
+                String path = text(entry.get("path"), "an accepted older piece's path");
+                long bytes = number(entry.get("size"), "size of the older " + path);
+                String sha = text(entry.get("sha256"), "sha256 of the older " + path);
+                if (!ShipFiles.isSha256(sha)) throw bad("the SHA-256 of the older " + path + " is not 64 hex digits");
+                if (!bundledPaths.contains(path) || ShipDataManifest.IMAGE.equals(path) || ShipDataManifest.inputHash(path) != null
+                        || ShipDataManifest.supplementHashPrefix(path) != null) {
+                    throw bad("an accepted older piece is not a bundled piece that may have other bytes: " + path);
+                }
+                for (DataFile pin : pinned) {
+                    if (pin.path.equals(path) && pin.sha256.equals(sha)) throw bad("the accepted older " + path + " is its pin");
+                }
+                older.add(new DataFile(path, bytes, sha));
+                olderPaths.add(path);
+            }
+            requireDistinct(olderPaths, "accepted older piece");
+        }
         return new ShipConfig(build, filesRoot, library, shaderPack, shaderPackName, startRequest, runId, switches,
-                directories, requiredInputs, pinned, bundled, ShipFiles.sha256Hex(json));
+                directories, requiredInputs, pinned, bundled, ShipFiles.sha256Hex(json), titleExecutable, updateDirectory, older);
     }
 
     private static Piece piece(Map<?, ?> map, String what) throws IOException {

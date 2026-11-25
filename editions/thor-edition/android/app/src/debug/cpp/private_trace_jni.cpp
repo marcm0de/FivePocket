@@ -20,12 +20,46 @@
 #include "private_trace_arguments.h"
 #include "private_frame_surface.h"
 #include "play_mode_gate.h" // Update 1 (Sandbox): the play mode, handed to the game code before it starts
+#include "private_process.h" // which process the loader serves: the app's own package (2026-11-24)
 #include "rumble_port.h" // Update 1 haptics: the library's rumble exports for the app's haptics thread
 #include "hud_window_holder.h" // hud2: the second screen's window
 #include "private_trace_hud_api.h"
 #include <android/native_window_jni.h>
+#if RECOMP_TURNIP
+#include <sys/system_properties.h>
+#include "turnip_choice.h" // the Turnip default-on path (debug builds)
+#endif
 
 namespace {
+#if RECOMP_TURNIP
+// Turnip default-on path (lead 2026-11-24; RECOMP_TURNIP builds only = debug test copies). The choice (turnip_choice.h): Turnip on the
+// Adreno 730 by default, diag-turnip-off forces the system driver, diag-turnip forces Turnip. When Turnip is chosen the probe library
+// (libturnip_probe.so: libadrenotools + the packaged driver) opens it before the game library, and the handle goes to the game
+// library's recomp_vk_loader_v1 before its entry point; without that hook, or with no handle, the system driver stays.
+void* turnipOpenChosen(const std::string& files){
+    char soc[PROP_VALUE_MAX]={},platform[PROP_VALUE_MAX]={};
+    __system_property_get("ro.soc.model",soc);
+    __system_property_get("ro.board.platform",platform);
+    const bool off=::access((files+"/private-trace/diag-turnip-off").c_str(),F_OK)==0;
+    const bool on=::access((files+"/private-trace/diag-turnip").c_str(),F_OK)==0;
+    const turnip_choice::Choice choice=turnip_choice::decide(off,on,soc,platform);
+    __android_log_print(ANDROID_LOG_INFO,"RecompPrivateTrace","TURNIP_CHOICE driver=%s reason=%s soc=%s platform=%s",
+        choice.turnip?"turnip":"system",choice.reason,soc[0]?soc:"-",platform[0]?platform:"-");
+    if(!choice.turnip)return nullptr;
+    void* probe=dlopen("libturnip_probe.so",RTLD_NOW|RTLD_LOCAL);
+    if(!probe){const char* why=dlerror();
+        __android_log_print(ANDROID_LOG_WARN,"RecompPrivateTrace","TURNIP_OPEN result=no-probe-library %s",why?why:"-");return nullptr;}
+    const auto open=reinterpret_cast<void*(*)(const char*)>(dlsym(probe,"recomp_turnip_open_v1"));
+    if(!open){__android_log_print(ANDROID_LOG_WARN,"RecompPrivateTrace","TURNIP_OPEN result=no-open-entry");return nullptr;}
+    return open(files.c_str());
+}
+void turnipHandOff(void* library,void* handle){
+    if(!handle)return;
+    const auto take=reinterpret_cast<int(*)(void*)>(dlsym(library,"recomp_vk_loader_v1"));
+    const int taken=take?take(handle):-1;
+    __android_log_print(ANDROID_LOG_INFO,"RecompPrivateTrace","TURNIP_HANDOFF result=%s",taken==1?"taken":taken==0?"too-late":"no-hook-in-library");
+}
+#endif
 std::atomic_flag prepared=ATOMIC_FLAG_INIT;
 std::atomic_flag checked=ATOMIC_FLAG_INIT;
 constexpr char LibraryName[]="private-trace-library.so";
@@ -58,11 +92,21 @@ bool limit(int resource,rlim_t amount){
 }
 
 bool privateProcess(){
+    // 2026-11-24 (lead): the app's own package, from the loader's install path (private_process.h), so a test id works too; the
+    // edition's fixed name when that path has another shape (as before). Logged once.
+    static const std::string expected=[]{
+        Dl_info info{};
+        const std::string path=dladdr(reinterpret_cast<void*>(&privateProcess),&info) && info.dli_fname?info.dli_fname:"";
+        const std::string package=recomp::private_process::packageFromLibraryPath(path);
+        const std::string name=recomp::private_process::expectedProcess(package,"dev.recompbootstrap.smoke.thor:private_trace");
+        __android_log_print(ANDROID_LOG_INFO,"RecompPrivateTrace","PRIVATE_PROCESS expected=%s source=%s",name.c_str(),package.empty()?"fixed":"package");
+        return name;
+    }();
     char name[128]{};
     const int fd=open("/proc/self/cmdline",O_RDONLY|O_CLOEXEC);
     if(fd<0)return false;
     const ssize_t bytes=read(fd,name,sizeof(name)-1);close(fd);
-    return bytes>0 && std::strcmp(name,"dev.recompbootstrap.smoke.thor:private_trace")==0; // (Thor edition: its own application id)
+    return bytes>0 && expected==name;
 }
 
 bool libraryFile(int fd){
@@ -184,6 +228,9 @@ Java_dev_recompbootstrap_smoke_PrivateTraceActivity_runTrace(JNIEnv* env,jclass,
         const int fd=fcntl(descriptor,F_DUPFD_CLOEXEC,0);if(fd<0)return nullptr;
         if(!libraryFile(fd)){close(fd);return nullptr;}
         android_dlextinfo extension{};extension.flags=ANDROID_DLEXT_USE_LIBRARY_FD;extension.library_fd=fd;
+#if RECOMP_TURNIP
+        void* const turnipHandle=turnipOpenChosen(path); // Turnip default-on path (debug builds): before the game library opens
+#endif
         void* library=android_dlopen_ext((path+"/private-trace/"+libraryName(frameMode)).c_str(),RTLD_NOW|RTLD_LOCAL,&extension);
 #ifdef RECOMP_LOADER_OPEN_LOG
         // The build that is handed out only (CMake option RECOMP_LOADER_OPEN_LOG; the debug build's loader stays the
@@ -199,6 +246,9 @@ Java_dev_recompbootstrap_smoke_PrivateTraceActivity_runTrace(JNIEnv* env,jclass,
 #endif
         close(fd);if(!library)return nullptr;
         using Entry=int (*)(int,char**) noexcept;
+#if RECOMP_TURNIP
+        if(library)turnipHandOff(library,turnipHandle); // before any entry point; nullptr handle = the system driver, as before
+#endif
         const auto entry=reinterpret_cast<Entry>(dlsym(library,"recomp_run_private_trace_v1"));
         const auto entryV2=reinterpret_cast<decltype(&recomp_run_private_trace_v2)>(dlsym(library,"recomp_run_private_trace_v2"));
         const auto entryV3=reinterpret_cast<decltype(&recomp_run_private_trace_v3)>(dlsym(library,"recomp_run_private_trace_v3"));

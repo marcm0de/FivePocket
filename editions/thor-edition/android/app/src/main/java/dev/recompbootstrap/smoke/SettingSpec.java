@@ -63,6 +63,11 @@ final class SettingSpec {
         return new SettingSpec(key, Kind.TOGGLE, group, label, new String[0], new String[0], 0, 1, 1, 0, false, false);
     }
 
+    /** Next update: a toggle that is on unless the player switches it off (Menu music). */
+    static SettingSpec toggleOn(String key, String group, String label) {
+        return new SettingSpec(key, Kind.TOGGLE, group, label, new String[0], new String[0], 0, 1, 1, 1, false, false);
+    }
+
     /** True for a value this setting can hold: inside the range and on the step. */
     boolean valid(int value) {
         return value >= min && value <= max && (value - min) % step == 0;

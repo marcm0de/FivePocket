@@ -85,3 +85,18 @@ option(RECOMP_LOADER_OPEN_LOG "The loader logs whether the game library opened, 
 if(RECOMP_LOADER_OPEN_LOG)
     target_compile_definitions(recomp_private_debug PRIVATE RECOMP_LOADER_OPEN_LOG=1)
 endif()
+# Turnip default-on path (lead 2026-11-24; ON only in debug builds, app/build.gradle.kts): libadrenotools (BSD-2-Clause,
+# bylaws/libadrenotools 8fae8ce254dfc1344527e05301e43f37dea2df80, linkernsbypass aa3975893d83ef1bc84c321ec60c65fbf1287887; the touch lane's
+# copy, without .git) and libturnip_probe.so, a separate library because linkernsbypass has a load-time constructor. Its four hook
+# libraries and the packaged driver (src/debug/jniLibs) must be real files in nativeLibraryDir (legacy jniLibs packaging, debug only).
+# The loader (RECOMP_TURNIP=1) chooses the driver (debug/cpp/turnip_choice.h) and dlopens the probe library only when it chose Turnip.
+option(RECOMP_TURNIP "Turnip on the Adreno 730 by default (diag-turnip-off forces the system driver)" OFF)
+if(RECOMP_TURNIP)
+    add_subdirectory(third_party/libadrenotools adrenotools)
+    add_library(turnip_probe SHARED ../../debug/cpp/turnip_probe.cpp)
+    target_compile_features(turnip_probe PRIVATE cxx_std_17)
+    target_compile_options(turnip_probe PRIVATE -Wall -Wextra -Werror)
+    target_link_libraries(turnip_probe PRIVATE adrenotools "${android_log_library}" dl)
+    set_target_properties(turnip_probe PROPERTIES CXX_VISIBILITY_PRESET hidden)
+    target_compile_definitions(recomp_private_debug PRIVATE RECOMP_TURNIP=1)
+endif()

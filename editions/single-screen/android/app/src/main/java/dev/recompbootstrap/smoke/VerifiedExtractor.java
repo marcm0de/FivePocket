@@ -490,6 +490,22 @@ final class VerifiedExtractor {
     }
 
     /**
+     * Bytes written to one file between two flushes to storage. 2026-11-24 (TU27, the Thor): a multi-GB disc file written with a single
+     * force() at its end left over 1 GB of dirty pages (vm.dirty_ratio 20), the kernel went into direct reclaim and lmkd killed the app in
+     * the foreground at "critical pressure". A data flush every FLUSH_EVERY bytes keeps the dirty pages of a big file bounded.
+     */
+    static final long FLUSH_EVERY = 64L << 20;
+
+    /** writeAll, then a data flush (fdatasync) each time FLUSH_EVERY more bytes went to out; returns the bytes since the last flush. */
+    static long writeBounded(FileChannel out, byte[] buffer, int length, long sinceFlush) throws IOException {
+        writeAll(out, buffer, length);
+        sinceFlush += length;
+        if (sinceFlush < FLUSH_EVERY) return sinceFlush;
+        out.force(false);
+        return 0;
+    }
+
+    /**
      * Makes sure directory exists as a real directory, creating it and missing parents one by one. A link or a file
      * standing under one of the names is an error; it is never followed and never replaced.
      */

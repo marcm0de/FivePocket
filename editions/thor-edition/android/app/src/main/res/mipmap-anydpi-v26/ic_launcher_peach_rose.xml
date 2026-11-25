@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 2026-11-22 owner decision (app icon follows the builder's logo choice): the owner's own FivePocket logo, colourway
+     peach rose, on its own sky (owner 2026-11-22, "colourway's sky": Samsung's launcher fills the shape, so the background is the
+     colourway's sky, ic_launcher_sky_*), the logo scaled and centred so that no launcher shape cuts any of its pixels (66dp safe zone). Shown only
+     when the imported bundle names this colourway (AppIcon). -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_sky_peach_rose" />
+    <foreground android:drawable="@mipmap/ic_launcher_fg_peach_rose" />
+</adaptive-icon>

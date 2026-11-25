@@ -342,6 +342,25 @@ final class ShipFirstRun {
         return removed;
     }
 
+    /**
+     * Whether a record's start request fits this app's files folder (place) and names only what the record lists: null, or the sentence
+     * the first start reports. Pure; also what a host check runs against a profile before it reaches a device (2026-11-24: a TU profile
+     * whose requiredInputs missed its own program got this far only on the Thor).
+     */
+    static String requestProblem(ShipConfig config, byte[] request, String place) {
+        String root = place + "/" + InstallState.PRIVATE_TRACE;
+        String refusal = LaunchRequest.checkArguments(request, root, config.runId);
+        if (refusal != null) return "The start request inside this app does not fit this device: " + refusal + ".";
+        String prefix = root + "/";
+        for (String named : LaunchRequest.referencedInputs(request, place)) {
+            String relative = named.substring(prefix.length());
+            if (!config.requiredInputs.contains(relative) && !config.directories.contains(relative)) {
+                return "The start request inside this app names " + relative + ", which its record does not list. Install the app again.";
+            }
+        }
+        return null;
+    }
+
     private static Result runLocked(ShipBundle bundle, File filesDir, Progress progress, ShipFiles.Space space) {
         List<String> changed = new ArrayList<String>();
         List<String> report = new ArrayList<String>();
@@ -362,18 +381,8 @@ final class ShipFirstRun {
 
             // The start request is small: it is read and checked whole before anything is written.
             byte[] request = readPiece(bundle, config.startRequest, "start request");
-            String refusal = LaunchRequest.checkArguments(request, root.getAbsolutePath(), config.runId);
-            if (refusal != null) {
-                return failed(config, changed, report, "The start request inside this app does not fit this device: " + refusal + ".");
-            }
-            String prefix = root.getAbsolutePath() + "/";
-            for (String named : LaunchRequest.referencedInputs(request, place)) {
-                String relative = named.substring(prefix.length());
-                if (!config.requiredInputs.contains(relative) && !config.directories.contains(relative)) {
-                    return failed(config, changed, report, "The start request inside this app names " + relative
-                            + ", which its record does not list. Install the app again.");
-                }
-            }
+            String refusal = requestProblem(config, request, place);
+            if (refusal != null) return failed(config, changed, report, refusal);
 
             // What is already there (an update that did not change the game code, a second run, the owner's phone).
             File library = new File(root, InstallState.LIVE_LIBRARY);

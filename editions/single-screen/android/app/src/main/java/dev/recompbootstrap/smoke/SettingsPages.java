@@ -23,16 +23,18 @@ final class SettingsPages {
      * without a setting key (the "files differ" row and the two action rows) are SAVE's.
      */
     private static final String[][] ORDER = shown(new String[][] {
-            {SettingsSchema.SCALER, SettingsSchema.FSR_SHARPNESS, SettingsSchema.RENDER_SCALE, SettingsSchema.SCREEN_FILL, SettingsSchema.LANGUAGE},   // (1.2.1, owner: the game's language, last on Display),
+            {SettingsSchema.SCALER, SettingsSchema.FSR_SHARPNESS, SettingsSchema.RENDER_SCALE, SettingsSchema.SCREEN_FILL,
+                    SettingsSchema.APP_ICON, SettingsSchema.LANGUAGE},   // (2026-11-22, owner: the app icon, then the game's language; last on Display)
             {SettingsSchema.FRAME_CAP, SettingsSchema.FRAME_GENERATION, SettingsSchema.FPS_OVERLAY},   // (1.2.1, owner: the clean counter row again)
             {SettingsSchema.WORLD_TRAFFIC, SettingsSchema.WORLD_PEDESTRIANS, SettingsSchema.WORLD_PARKED_CARS,
-                    SettingsSchema.WORLD_SCENARIO_PEDESTRIANS, SettingsSchema.WORLD_DRAW_DISTANCE, SettingsSchema.SCRIPT_MODS},
+                    SettingsSchema.WORLD_SCENARIO_PEDESTRIANS, SettingsSchema.WORLD_DRAW_DISTANCE, SettingsSchema.SCRIPT_MODS,
+                    SettingsSchema.DLC_PACKS}, // (next update: the player's own DLC)
             {SettingsSchema.INPUT_UNBUFFERED, SettingsSchema.TOUCH_CONTROLS, SettingsSchema.TOUCH_KEEP, SettingsSchema.TOUCH_SIZE,
                     SettingsSchema.TOUCH_OPACITY, SettingsSchema.TOUCH_LAYOUT,
                     SettingsSchema.HAPTICS},
             // Update 1 haptics: Vibration stands last on Controls (lead's decision 2026-11-06, ALLOCATION.md §10); as its seventh row the
             // page shows five rows and scrolls under a four-line notice (nothing is cut; SettingsPagesTest grouping)
-            {SettingsSchema.PERFORMANCE_PRESET},
+            {SettingsSchema.PERFORMANCE_PRESET, SettingsSchema.MENU_MUSIC},   // (next update: the launcher music; Display is full)
             {SettingsSchema.MY_MUSIC, SettingsSchema.MY_MUSIC_VOLUME, SettingsSchema.MY_MUSIC_ORDER}, // (Update 1 P6)
             {}});
 
@@ -48,7 +50,7 @@ final class SettingsPages {
     static final String TEXT_DRIFT_HELP = "Apply Again writes your saved settings to the game's files. Show lists what differs.";
     static final String TEXT_RESTORE_HELP = "Puts every row back to the original game's value. Nothing is written until you save.";
     static final String TEXT_SAVE_HELP = "Writes the settings to the game's files. They apply the next time the game starts.";
-    /** 1.2.1 (owner): the save export / import rows. */
+    /** Next update (owner): the save export / import rows. */
     static final String TEXT_EXPORT_SAVES_HELP = "Writes all your saves (Story, Sandbox, Online character) into one file you choose. Nothing in the app changes.",
             TEXT_IMPORT_SAVES_HELP = "Reads a file made by Export saves. It shows what it holds and asks first; your saves are kept in the app.";
     /** 1.2.1 (lead, players see it): the word over the save import question, in place of the frame's "alert". */
@@ -411,6 +413,7 @@ final class SettingsPages {
         row.marked = model.rowChanged(index);
         row.fraction = model.rowFraction(index);
         row.valueTone = model.rowValueTone(index) == MenuModel.TONE_WARNING ? MenuScenes.TONE_WARNING : MenuScenes.TONE_NORMAL;
+        if (SettingsSchema.APP_ICON.equals(model.rowKey(index))) row.art = AppIcon.pictureForLabel(row.value);   // (2026-11-22: the logo's preview)
         return row;
     }
 
@@ -443,9 +446,12 @@ final class SettingsPages {
             case SettingsSchema.WORLD_SCENARIO_PEDESTRIANS: return SettingsSchema.hint(key, SettingsSchema.WORLD_DENSITY_MIN);
             case SettingsSchema.WORLD_DRAW_DISTANCE: return "How far away the game draws detailed objects.";
             case SettingsSchema.SCRIPT_MODS: return "Loads the mods in the game's mods folder. Applies at the next start.";
+            case SettingsSchema.DLC_PACKS: return "Loads the DLC package files you added with A on this row. Applies at the next start.";
             case SettingsSchema.INPUT_UNBUFFERED: return "Passes stick movement to the game as soon as Android reports it.";
-            case SettingsSchema.LANGUAGE: return "The language of the game's text and menus.";
             case SettingsSchema.HAPTICS: return "Vibration of this device for the game's rumble and for button taps.";
+            case SettingsSchema.APP_ICON: return "Which FivePocket logo is the app's icon on your home screen.";
+            case SettingsSchema.LANGUAGE: return "The language of the game's text and menus.";
+            case SettingsSchema.MENU_MUSIC: return "Plays the game's music on this menu. It fades out when the game starts.";
             case SettingsSchema.TOUCH_CONTROLS: return "On-screen buttons that change in vehicles, or a full 360 pad.";
             case SettingsSchema.TOUCH_KEEP: return "Off: hidden while a controller is used; a touch shows them.";
             case SettingsSchema.TOUCH_SIZE: return "The size of the on-screen buttons and sticks.";

@@ -1,0 +1,453 @@
+{
+  "schema": "gta5-ship-config/1",
+  "build": "tu27-m05r-fivepocket-thor",
+  "filesRoot": "/data/user/0/dev.recompbootstrap.smoke.thor/files",
+  "library": {
+    "asset": "ship/game-library.bin",
+    "size": 367924272,
+    "sha256": "1ff5cb930e2230596873f5a8dfaafa6fa4da3d4d70b72415669877d503efb181"
+  },
+  "shaderPack": {
+    "asset": "ship/shader-pack.bin",
+    "name": "generic-shaders-v41.bin",
+    "size": 73197368,
+    "sha256": "17fc51a8b382fa84904e10ad8e86c9bdb7d98a90866f5e1c7851abcf11f93fa2"
+  },
+  "startRequest": {
+    "asset": "ship/start-request.bin",
+    "runId": "8b98e46a4c2c401484e5d9acb5d6f929",
+    "size": 6145,
+    "sha256": "366e485f7ab597153c4672927bec4df56a1c923f852d8c69970ee82a8a9555be"
+  },
+  "switches": [
+    "diag-au-ahead",
+    "diag-calls-gpr",
+    "diag-df-float",
+    "diag-direct-present",
+    "diag-domain-each",
+    "diag-domain-split-render",
+    "diag-fps-overlay",
+    "diag-fr-120",
+    "diag-gamma",
+    "diag-gc-index-fold",
+    "diag-gc-prewarm",
+    "diag-generic-async-pool-reset",
+    "diag-generic-first-scene",
+    "diag-generic-swap-reuse",
+    "diag-imports-fast",
+    "diag-irq-deferred",
+    "diag-jc-loop",
+    "diag-jp-park-poll",
+    "diag-mc-dcbt128",
+    "diag-ms-prime-noyield",
+    "diag-mw-cs-spin",
+    "diag-mw2-scene-w",
+    "diag-native-fence-only",
+    "diag-oc-queries",
+    "diag-pw-fix",
+    "diag-read-fault-status",
+    "diag-registry-adjacent-graphics-views",
+    "diag-registry-cs-fast",
+    "diag-scene-irq-foreign-ordinary",
+    "diag-se-big",
+    "diag-sw-wfe",
+    "diag-ugc-cloud",
+    "diag-v245-swap",
+    "diag-v250-synth-little",
+    "diag-v260-write-watch",
+    "diag-v280-limit60",
+    "diag-v287-gpu-passes",
+    "diag-v312-release",
+    "diag-v362-render-trims",
+    "diag-v366-render-trims2",
+    "diag-v409-scale-cubic",
+    "diag-v450-scale-fsr1",
+    "diag-vkw-all",
+    "diag-vkw2-all",
+    "diag-vkw3-prefetch",
+    "diag-vkw4-all"
+  ],
+  "directories": [
+    "inputs/native-cache",
+    "inputs/native-update",
+    "inputs/native-game-cache",
+    "modules/boot",
+    "inputs/native-update-tu27"
+  ],
+  "requiredInputs": [
+    "inputs/f0ca93fbe6b3dfbf50c026e0d77a71e8294b13a5a775af1b6a64f07b0fc10a3d.bin",
+    "inputs/e640d9edc295f389a90c5c1f66e16235a0f2cb6d919965e89784500157778669.bin",
+    "inputs/fbe6bc13646b0b7f5b526727d649e2e4c7a65a136f9c438db1590a85807b1536.bin",
+    "inputs/4ec81dc527edbc4b2a9d011ebad2888cc374e4ba1fa67ea662368b6609de42bd.bin",
+    "inputs/9104eda921076bb0602a7a813592be62a158487c2c54bac24c0584194ab82cb8.bin",
+    "inputs/b22b488e9760f1af2a9766ead7922fd16279f96f858f5b8f7a754b8aa3278880.bin",
+    "inputs/ae1c120717f93e397f7561798bc9e8e42ef9fa367e250bf12c774cd86ddb7d88.bin",
+    "inputs/96bc0b2719da62e933476c095a16ad54157f38753da465209c58a3802bfe52bd.bin",
+    "inputs/78c21d9a783186e0ae4a4828d9b72fa27f5f7938177079e73d1f039e4f6dbfd8.bin",
+    "inputs/20b768dd4d6a085fdc8002ebab2467df7f7ac6c6c4b5e16b0fa3337a9e381db1.bin",
+    "inputs/ad9b4679a03508dfeaf729478fb43de867d9f8756f4d4b56e100f20b4af9926e.bin",
+    "inputs/a27533bb1a9f15d9e273f24cef04b68484da96f9bf9d5e4b0b0ddd6f1989761c.bin",
+    "inputs/1566241deb22e940e0cf7a0408af64f725f9ab82ea008137587f31403bbafb38.bin",
+    "inputs/ab18d5eaa3bd6d85fd563cabda550f11c5c6b59842ec67336a9b6ecf4fffe874.bin",
+    "inputs/79ddaf54aa2444dcd483aed955ed0cf97387a9ba38330e8feb19c8b539bd8d06.bin",
+    "inputs/04f4fd93791723c5205b814290003c86fd23a99910edaeb58a338fff9af3cce9.bin",
+    "inputs/14558590d94ce5af23b416a79e298d47e335878a3d932639a9f4ff3d9175f7c7.bin",
+    "inputs/9d8b825c57029213340730514f92355f71208c8451fb669e1e4a702bc27e36a3.bin",
+    "inputs/c541e611f63a34d71ea409c9882770901161462985c30acebaa828ea15626739.bin",
+    "inputs/55e9a283545f813a1ec0896d757c716c524e0261aa72da27ad368c2b0726b8a9.bin",
+    "inputs/08e44da0c420f1c6686ea09faed83d085351cd56b973e1945554012521bcdeea.bin",
+    "inputs/5c7a633870485a4e79738fa6169e5a7937b39ba4474fb6f51a994c8dc6b8e525.bin",
+    "inputs/9d15357ffb79a815020f2bdb66b0faee8ec0873a6499c927569f236bdda41cb1.bin",
+    "inputs/159902888e5406ce4fff59831a9ecf7b4d0816080f65ddd7789d2038091ffd16.bin",
+    "inputs/0fb2c0fddcd8a34bc74587d08c024c02d76788db5cf846c2a7b46f24539c6c8f.bin"
+  ],
+  "data": [
+    {
+      "path": "decoded.image.bin",
+      "size": 32833536,
+      "sha256": "79e4410fb283e8d28c7a571fc9c4b70d861d4293fd22b7baf13e640c139fc4ff"
+    },
+    {
+      "path": "inputs/04f4fd93791723c5205b814290003c86fd23a99910edaeb58a338fff9af3cce9.bin",
+      "size": 3108864,
+      "sha256": "04f4fd93791723c5205b814290003c86fd23a99910edaeb58a338fff9af3cce9"
+    },
+    {
+      "path": "inputs/08e44da0c420f1c6686ea09faed83d085351cd56b973e1945554012521bcdeea.bin",
+      "size": 12916736,
+      "sha256": "08e44da0c420f1c6686ea09faed83d085351cd56b973e1945554012521bcdeea"
+    },
+    {
+      "path": "inputs/0fb2c0fddcd8a34bc74587d08c024c02d76788db5cf846c2a7b46f24539c6c8f.bin",
+      "size": 32854016,
+      "sha256": "0fb2c0fddcd8a34bc74587d08c024c02d76788db5cf846c2a7b46f24539c6c8f"
+    },
+    {
+      "path": "inputs/14558590d94ce5af23b416a79e298d47e335878a3d932639a9f4ff3d9175f7c7.bin",
+      "size": 666355712,
+      "sha256": "14558590d94ce5af23b416a79e298d47e335878a3d932639a9f4ff3d9175f7c7"
+    },
+    {
+      "path": "inputs/1566241deb22e940e0cf7a0408af64f725f9ab82ea008137587f31403bbafb38.bin",
+      "size": 1806764032,
+      "sha256": "1566241deb22e940e0cf7a0408af64f725f9ab82ea008137587f31403bbafb38"
+    },
+    {
+      "path": "inputs/159902888e5406ce4fff59831a9ecf7b4d0816080f65ddd7789d2038091ffd16.bin",
+      "size": 1028,
+      "sha256": "159902888e5406ce4fff59831a9ecf7b4d0816080f65ddd7789d2038091ffd16"
+    },
+    {
+      "path": "inputs/20b768dd4d6a085fdc8002ebab2467df7f7ac6c6c4b5e16b0fa3337a9e381db1.bin",
+      "size": 14,
+      "sha256": "20b768dd4d6a085fdc8002ebab2467df7f7ac6c6c4b5e16b0fa3337a9e381db1"
+    },
+    {
+      "path": "inputs/4ec81dc527edbc4b2a9d011ebad2888cc374e4ba1fa67ea662368b6609de42bd.bin",
+      "size": 243,
+      "sha256": "4ec81dc527edbc4b2a9d011ebad2888cc374e4ba1fa67ea662368b6609de42bd"
+    },
+    {
+      "path": "inputs/55e9a283545f813a1ec0896d757c716c524e0261aa72da27ad368c2b0726b8a9.bin",
+      "size": 1390331904,
+      "sha256": "55e9a283545f813a1ec0896d757c716c524e0261aa72da27ad368c2b0726b8a9"
+    },
+    {
+      "path": "inputs/5c7a633870485a4e79738fa6169e5a7937b39ba4474fb6f51a994c8dc6b8e525.bin",
+      "size": 711852032,
+      "sha256": "5c7a633870485a4e79738fa6169e5a7937b39ba4474fb6f51a994c8dc6b8e525"
+    },
+    {
+      "path": "inputs/78c21d9a783186e0ae4a4828d9b72fa27f5f7938177079e73d1f039e4f6dbfd8.bin",
+      "size": 2134566912,
+      "sha256": "78c21d9a783186e0ae4a4828d9b72fa27f5f7938177079e73d1f039e4f6dbfd8"
+    },
+    {
+      "path": "inputs/79ddaf54aa2444dcd483aed955ed0cf97387a9ba38330e8feb19c8b539bd8d06.bin",
+      "size": 16399,
+      "sha256": "79ddaf54aa2444dcd483aed955ed0cf97387a9ba38330e8feb19c8b539bd8d06"
+    },
+    {
+      "path": "inputs/9104eda921076bb0602a7a813592be62a158487c2c54bac24c0584194ab82cb8.bin",
+      "size": 243,
+      "sha256": "9104eda921076bb0602a7a813592be62a158487c2c54bac24c0584194ab82cb8"
+    },
+    {
+      "path": "inputs/96bc0b2719da62e933476c095a16ad54157f38753da465209c58a3802bfe52bd.bin",
+      "size": 14,
+      "sha256": "96bc0b2719da62e933476c095a16ad54157f38753da465209c58a3802bfe52bd"
+    },
+    {
+      "path": "inputs/9d15357ffb79a815020f2bdb66b0faee8ec0873a6499c927569f236bdda41cb1.bin",
+      "size": 1431193600,
+      "sha256": "9d15357ffb79a815020f2bdb66b0faee8ec0873a6499c927569f236bdda41cb1"
+    },
+    {
+      "path": "inputs/9d8b825c57029213340730514f92355f71208c8451fb669e1e4a702bc27e36a3.bin",
+      "size": 2762117120,
+      "sha256": "9d8b825c57029213340730514f92355f71208c8451fb669e1e4a702bc27e36a3"
+    },
+    {
+      "path": "inputs/a27533bb1a9f15d9e273f24cef04b68484da96f9bf9d5e4b0b0ddd6f1989761c.bin",
+      "size": 14,
+      "sha256": "a27533bb1a9f15d9e273f24cef04b68484da96f9bf9d5e4b0b0ddd6f1989761c"
+    },
+    {
+      "path": "inputs/ab18d5eaa3bd6d85fd563cabda550f11c5c6b59842ec67336a9b6ecf4fffe874.bin",
+      "size": 14,
+      "sha256": "ab18d5eaa3bd6d85fd563cabda550f11c5c6b59842ec67336a9b6ecf4fffe874"
+    },
+    {
+      "path": "inputs/ad9b4679a03508dfeaf729478fb43de867d9f8756f4d4b56e100f20b4af9926e.bin",
+      "size": 2134116352,
+      "sha256": "ad9b4679a03508dfeaf729478fb43de867d9f8756f4d4b56e100f20b4af9926e"
+    },
+    {
+      "path": "inputs/ae1c120717f93e397f7561798bc9e8e42ef9fa367e250bf12c774cd86ddb7d88.bin",
+      "size": 2133954560,
+      "sha256": "ae1c120717f93e397f7561798bc9e8e42ef9fa367e250bf12c774cd86ddb7d88"
+    },
+    {
+      "path": "inputs/b22b488e9760f1af2a9766ead7922fd16279f96f858f5b8f7a754b8aa3278880.bin",
+      "size": 243,
+      "sha256": "b22b488e9760f1af2a9766ead7922fd16279f96f858f5b8f7a754b8aa3278880"
+    },
+    {
+      "path": "inputs/c541e611f63a34d71ea409c9882770901161462985c30acebaa828ea15626739.bin",
+      "size": 1141999616,
+      "sha256": "c541e611f63a34d71ea409c9882770901161462985c30acebaa828ea15626739"
+    },
+    {
+      "path": "inputs/e640d9edc295f389a90c5c1f66e16235a0f2cb6d919965e89784500157778669.bin",
+      "size": 1248,
+      "sha256": "e640d9edc295f389a90c5c1f66e16235a0f2cb6d919965e89784500157778669"
+    },
+    {
+      "path": "inputs/f0ca93fbe6b3dfbf50c026e0d77a71e8294b13a5a775af1b6a64f07b0fc10a3d.bin",
+      "size": 26628096,
+      "sha256": "f0ca93fbe6b3dfbf50c026e0d77a71e8294b13a5a775af1b6a64f07b0fc10a3d"
+    },
+    {
+      "path": "inputs/fbe6bc13646b0b7f5b526727d649e2e4c7a65a136f9c438db1590a85807b1536.bin",
+      "size": 243,
+      "sha256": "fbe6bc13646b0b7f5b526727d649e2e4c7a65a136f9c438db1590a85807b1536"
+    },
+    {
+      "path": "inputs/tu27-shaders/generic-shaders-tu27-5b871435a75ccf47.bin",
+      "size": 4594820,
+      "sha256": "5b871435a75ccf476797dc6362a32992d2e660f51a725b40c01949dc23002c0c"
+    },
+    {
+      "path": "modules/boot/copy/dataflow.spv",
+      "size": 5124,
+      "sha256": "96112b93f8ab99fb31735690d89d38ee29da070d4ddd6ef7f192af3242591a95"
+    },
+    {
+      "path": "modules/boot/depth/store/dataflow.spv",
+      "size": 5584,
+      "sha256": "8b484936ccda1d1bcc6aa325b4492c17017c8a8db5e616cd730797818f3b89da"
+    },
+    {
+      "path": "modules/boot/depth/vertex/dataflow.spv",
+      "size": 14648,
+      "sha256": "abe7ba53ce3ceeba286adb1224633eec0acfb27a16a59c6428bc1b1f33497bc9"
+    },
+    {
+      "path": "modules/boot/depth/vertex/guest-code.bin",
+      "size": 108,
+      "sha256": "abfec28e9858fd1b9b27afd527f08421c38f288e9333cc7fc10d6391ac190fa9"
+    },
+    {
+      "path": "modules/boot/load/dataflow.spv",
+      "size": 4980,
+      "sha256": "a7621aebb6da67fb08fc66b462dc41b1fd0c524c8ae7d1c06e21b6e53e6246e5"
+    },
+    {
+      "path": "modules/boot/r8/fragment/dataflow.spv",
+      "size": 42308,
+      "sha256": "a07036fa52d2a66d937ceb952d41813ffa52e1abb2b74a158cb3852fc5676eac"
+    },
+    {
+      "path": "modules/boot/r8/fragment/guest-code.bin",
+      "size": 156,
+      "sha256": "a05a7c15f140b8435b86a9da4abf91a92e7eca4c2a451916bad3719863e31845"
+    },
+    {
+      "path": "modules/boot/r8/vertex/dataflow.spv",
+      "size": 34952,
+      "sha256": "de64b536dcd4e8f3f595addd903569d7f84387188a027745a7cfb790719bb21a"
+    },
+    {
+      "path": "modules/boot/r8/vertex/guest-code.bin",
+      "size": 144,
+      "sha256": "d2b5d5f65ad1fdbbf8698ee980c1439cf1a84d67c03a5fe321d3046c547fd75f"
+    },
+    {
+      "path": "modules/boot/small/fragment/dataflow.spv",
+      "size": 13736,
+      "sha256": "577793b75259eef8732313417579a19107b7ac7aab54669dc4b27491319ea75c"
+    },
+    {
+      "path": "modules/boot/small/fragment/guest-code.bin",
+      "size": 84,
+      "sha256": "905f743f0330b791e9056a16af722db441e0ead56d91eb2981e71958e9a65711"
+    },
+    {
+      "path": "modules/boot/small/vertex/dataflow.spv",
+      "size": 30340,
+      "sha256": "116d15decaa113cd65182f612c98a4de0cff3d93e36e5fc5e4c47f931310d56d"
+    },
+    {
+      "path": "modules/boot/small/vertex/guest-code.bin",
+      "size": 144,
+      "sha256": "24b07a74ccddd2372bca2e80d7da78fb0917a6c95304384522056f285aacd6f5"
+    },
+    {
+      "path": "modules/boot/store/dataflow.spv",
+      "size": 8776,
+      "sha256": "df06253a45ddb44034b8599bfbb7ec8483be2f002890414c004a9ea84185f6bf"
+    }
+  ],
+  "pieces": [
+    {
+      "asset": "ship/pieces/decoded.image.bin",
+      "path": "decoded.image.bin",
+      "size": 32833536,
+      "sha256": "79e4410fb283e8d28c7a571fc9c4b70d861d4293fd22b7baf13e640c139fc4ff"
+    },
+    {
+      "asset": "ship/pieces/inputs/0fb2c0fddcd8a34bc74587d08c024c02d76788db5cf846c2a7b46f24539c6c8f.bin",
+      "path": "inputs/0fb2c0fddcd8a34bc74587d08c024c02d76788db5cf846c2a7b46f24539c6c8f.bin",
+      "size": 32854016,
+      "sha256": "0fb2c0fddcd8a34bc74587d08c024c02d76788db5cf846c2a7b46f24539c6c8f"
+    },
+    {
+      "asset": "ship/pieces/inputs/4ec81dc527edbc4b2a9d011ebad2888cc374e4ba1fa67ea662368b6609de42bd.bin",
+      "path": "inputs/4ec81dc527edbc4b2a9d011ebad2888cc374e4ba1fa67ea662368b6609de42bd.bin",
+      "size": 243,
+      "sha256": "4ec81dc527edbc4b2a9d011ebad2888cc374e4ba1fa67ea662368b6609de42bd"
+    },
+    {
+      "asset": "ship/pieces/inputs/79ddaf54aa2444dcd483aed955ed0cf97387a9ba38330e8feb19c8b539bd8d06.bin",
+      "path": "inputs/79ddaf54aa2444dcd483aed955ed0cf97387a9ba38330e8feb19c8b539bd8d06.bin",
+      "size": 16399,
+      "sha256": "79ddaf54aa2444dcd483aed955ed0cf97387a9ba38330e8feb19c8b539bd8d06"
+    },
+    {
+      "asset": "ship/pieces/inputs/9104eda921076bb0602a7a813592be62a158487c2c54bac24c0584194ab82cb8.bin",
+      "path": "inputs/9104eda921076bb0602a7a813592be62a158487c2c54bac24c0584194ab82cb8.bin",
+      "size": 243,
+      "sha256": "9104eda921076bb0602a7a813592be62a158487c2c54bac24c0584194ab82cb8"
+    },
+    {
+      "asset": "ship/pieces/inputs/b22b488e9760f1af2a9766ead7922fd16279f96f858f5b8f7a754b8aa3278880.bin",
+      "path": "inputs/b22b488e9760f1af2a9766ead7922fd16279f96f858f5b8f7a754b8aa3278880.bin",
+      "size": 243,
+      "sha256": "b22b488e9760f1af2a9766ead7922fd16279f96f858f5b8f7a754b8aa3278880"
+    },
+    {
+      "asset": "ship/pieces/inputs/e640d9edc295f389a90c5c1f66e16235a0f2cb6d919965e89784500157778669.bin",
+      "path": "inputs/e640d9edc295f389a90c5c1f66e16235a0f2cb6d919965e89784500157778669.bin",
+      "size": 1248,
+      "sha256": "e640d9edc295f389a90c5c1f66e16235a0f2cb6d919965e89784500157778669"
+    },
+    {
+      "asset": "ship/pieces/inputs/fbe6bc13646b0b7f5b526727d649e2e4c7a65a136f9c438db1590a85807b1536.bin",
+      "path": "inputs/fbe6bc13646b0b7f5b526727d649e2e4c7a65a136f9c438db1590a85807b1536.bin",
+      "size": 243,
+      "sha256": "fbe6bc13646b0b7f5b526727d649e2e4c7a65a136f9c438db1590a85807b1536"
+    },
+    {
+      "asset": "ship/pieces/inputs/tu27-shaders/generic-shaders-tu27-5b871435a75ccf47.bin",
+      "path": "inputs/tu27-shaders/generic-shaders-tu27-5b871435a75ccf47.bin",
+      "size": 4594820,
+      "sha256": "5b871435a75ccf476797dc6362a32992d2e660f51a725b40c01949dc23002c0c"
+    },
+    {
+      "asset": "ship/pieces/modules/boot/copy/dataflow.spv",
+      "path": "modules/boot/copy/dataflow.spv",
+      "size": 5124,
+      "sha256": "96112b93f8ab99fb31735690d89d38ee29da070d4ddd6ef7f192af3242591a95"
+    },
+    {
+      "asset": "ship/pieces/modules/boot/depth/store/dataflow.spv",
+      "path": "modules/boot/depth/store/dataflow.spv",
+      "size": 5584,
+      "sha256": "8b484936ccda1d1bcc6aa325b4492c17017c8a8db5e616cd730797818f3b89da"
+    },
+    {
+      "asset": "ship/pieces/modules/boot/depth/vertex/dataflow.spv",
+      "path": "modules/boot/depth/vertex/dataflow.spv",
+      "size": 14648,
+      "sha256": "abe7ba53ce3ceeba286adb1224633eec0acfb27a16a59c6428bc1b1f33497bc9"
+    },
+    {
+      "asset": "ship/pieces/modules/boot/depth/vertex/guest-code.bin",
+      "path": "modules/boot/depth/vertex/guest-code.bin",
+      "size": 108,
+      "sha256": "abfec28e9858fd1b9b27afd527f08421c38f288e9333cc7fc10d6391ac190fa9"
+    },
+    {
+      "asset": "ship/pieces/modules/boot/load/dataflow.spv",
+      "path": "modules/boot/load/dataflow.spv",
+      "size": 4980,
+      "sha256": "a7621aebb6da67fb08fc66b462dc41b1fd0c524c8ae7d1c06e21b6e53e6246e5"
+    },
+    {
+      "asset": "ship/pieces/modules/boot/r8/fragment/dataflow.spv",
+      "path": "modules/boot/r8/fragment/dataflow.spv",
+      "size": 42308,
+      "sha256": "a07036fa52d2a66d937ceb952d41813ffa52e1abb2b74a158cb3852fc5676eac"
+    },
+    {
+      "asset": "ship/pieces/modules/boot/r8/fragment/guest-code.bin",
+      "path": "modules/boot/r8/fragment/guest-code.bin",
+      "size": 156,
+      "sha256": "a05a7c15f140b8435b86a9da4abf91a92e7eca4c2a451916bad3719863e31845"
+    },
+    {
+      "asset": "ship/pieces/modules/boot/r8/vertex/dataflow.spv",
+      "path": "modules/boot/r8/vertex/dataflow.spv",
+      "size": 34952,
+      "sha256": "de64b536dcd4e8f3f595addd903569d7f84387188a027745a7cfb790719bb21a"
+    },
+    {
+      "asset": "ship/pieces/modules/boot/r8/vertex/guest-code.bin",
+      "path": "modules/boot/r8/vertex/guest-code.bin",
+      "size": 144,
+      "sha256": "d2b5d5f65ad1fdbbf8698ee980c1439cf1a84d67c03a5fe321d3046c547fd75f"
+    },
+    {
+      "asset": "ship/pieces/modules/boot/small/fragment/dataflow.spv",
+      "path": "modules/boot/small/fragment/dataflow.spv",
+      "size": 13736,
+      "sha256": "577793b75259eef8732313417579a19107b7ac7aab54669dc4b27491319ea75c"
+    },
+    {
+      "asset": "ship/pieces/modules/boot/small/fragment/guest-code.bin",
+      "path": "modules/boot/small/fragment/guest-code.bin",
+      "size": 84,
+      "sha256": "905f743f0330b791e9056a16af722db441e0ead56d91eb2981e71958e9a65711"
+    },
+    {
+      "asset": "ship/pieces/modules/boot/small/vertex/dataflow.spv",
+      "path": "modules/boot/small/vertex/dataflow.spv",
+      "size": 30340,
+      "sha256": "116d15decaa113cd65182f612c98a4de0cff3d93e36e5fc5e4c47f931310d56d"
+    },
+    {
+      "asset": "ship/pieces/modules/boot/small/vertex/guest-code.bin",
+      "path": "modules/boot/small/vertex/guest-code.bin",
+      "size": 144,
+      "sha256": "24b07a74ccddd2372bca2e80d7da78fb0917a6c95304384522056f285aacd6f5"
+    },
+    {
+      "asset": "ship/pieces/modules/boot/store/dataflow.spv",
+      "path": "modules/boot/store/dataflow.spv",
+      "size": 8776,
+      "sha256": "df06253a45ddb44034b8599bfbb7ec8483be2f002890414c004a9ea84185f6bf"
+    }
+  ],
+  "titleExecutable": "0fb2c0fddcd8a34bc74587d08c024c02d76788db5cf846c2a7b46f24539c6c8f",
+  "updateDirectory": "inputs/native-update-tu27"
+}
