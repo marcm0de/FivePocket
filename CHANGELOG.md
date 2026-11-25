@@ -4,7 +4,28 @@ One version number covers every edition and every download of a release (the app
 the source archive). Format: [Keep a Changelog](https://keepachangelog.com/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [1.2.1] - unreleased
+## [1.3.0] - unreleased
+
+Android (single-screen and Thor Edition) and the Windows builders; iOS and Duo follow in a later 1.3.x release.
+**Everyone**: install the 1.3.0 app over the old one, build your package with the 1.3.0 builder and import it (saves are kept).
+
+### Added
+- Title Update 27 and Online in the same app: the builder also makes a title-update package from your own title-update
+  file (and your own DLC packs, if any); Online keeps character, rank, cash, purchases, look and stats across restarts.
+- Turnip graphics driver on Adreno 730 phones, on by default (single-screen app; about 4-7 % more fps measured).
+- App icon choice (three colourways), launcher menu music made from your discs.
+- Single-screen app built from its own game code (minimap tap, phone tracking).
+
+### Fixed
+- Disc copy / large package import no longer gets the app closed by Android's low-memory killer.
+- An interrupted "Preparing menu sounds" step no longer repeats on every start.
+- Online cash no longer lost or reset when the game saves during loading.
+- Shop / LS Customs, shader-cache stutter and the 1.2.x audit fixes, merged into one game library; intro movie fix.
+
+### Known issues
+- Fresh install: "Preparing menu sounds" can wait up to about 4 minutes once.
+
+## [1.2.1] - 2026-11-22
 
 Android hotfix (single-screen and Thor Edition) and the Windows builders. **Single-screen players**: install the 1.2.1 app
 over the old one, build your package once more with the 1.2.1 builder and import it. **Thor Edition players**: install the

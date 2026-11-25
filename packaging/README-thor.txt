@@ -21,18 +21,15 @@ deletes its saves. Copy your saves out first.
 
 NEW IN THIS UPDATE
 ------------------
-- Sandbox: free roam on its own save, on the Play tab next to Story Mode. It starts from a copy of your story
-  saves and never changes them. Play Story Mode until your first save to unlock it.
-- Switch Character (Sandbox, experimental): play as Michael, Franklin or Trevor, outdoors.
-- GTA Online's world, offline, in Sandbox: the side menu's Online tab. Everything runs on the device; nothing
-  connects to any online service.
-- Hold Select Opens Menu is now Off by default, so holding Select in the online world opens the game's own
-  Interaction Menu. Turn it back on in Settings > Controls.
-- Vibration (Settings > Controls): Off, Light or Full. This version asks Android for the vibration permission;
-  there is no prompt.
-- Rebuild your package with this version's builder to get the new features.
-- Updating from 1.2.x: install this app over the old one. Do not uninstall first: uninstalling deletes your
-  saves.
+- Title Update 27 and Online in the same app: the builder also makes a title-update package from your own
+  title-update file (and DLC packs, if you have them). Online keeps your character, rank, cash and stats.
+- App icon choice and launcher menu music (made by the builder from your discs).
+- Fixes: disc copy no longer closed by Android on low memory; no repeated "Preparing menu sounds"; Online cash
+  kept when saving during loading; merged game fixes from the 1.2.x line.
+- Updating from 1.2.x: install this app over the old one, then build your package with the 1.3.0 builder and import it.
+  A 1.2.x package no longer works with this app (the app says "Make a bundle for this version"). The new package
+  replaces the old one only after it checks out; your saves are kept. Do not uninstall first: uninstalling deletes
+  your saves.
 
 NEVER SHARE WHAT YOU BUILD
 --------------------------

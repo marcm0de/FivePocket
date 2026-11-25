@@ -21,11 +21,17 @@ deletes its saves. Copy your saves out first.
 
 NEW IN THIS UPDATE
 ------------------
-- Touch controls: in the online world, a button in the top row opens the game's Interaction Menu with one tap.
-- This version asks Android for the vibration permission; there is no prompt.
-- Rebuild your package with this version's builder to get the new features.
-- Updating from 1.2.x: install this app over the old one. Do not uninstall first: uninstalling deletes your
-  saves.
+- Title Update 27 and Online in the same app: the builder also makes a title-update package from your own
+  title-update file (and DLC packs, if you have them). Online keeps your character, rank, cash and stats.
+- Turnip graphics driver on Adreno 730 phones (Galaxy Z Fold4 / Flip4 class), on by default.
+- App icon choice and launcher menu music (made by the builder from your discs).
+- Its own game code for the single-screen app: tap the minimap to open the map, phone tracking.
+- Fixes: disc copy no longer closed by Android on low memory; no repeated "Preparing menu sounds"; Online cash
+  kept when saving during loading; merged game fixes from the 1.2.x line.
+- Updating from 1.2.x: install this app over the old one, then build your package with the 1.3.0 builder and import it.
+  A 1.2.x package no longer works with this app (the app says "Make a bundle for this version"). The new package
+  replaces the old one only after it checks out; your saves are kept. Do not uninstall first: uninstalling deletes
+  your saves.
 
 NEVER SHARE WHAT YOU BUILD
 --------------------------
