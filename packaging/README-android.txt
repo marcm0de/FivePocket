@@ -21,7 +21,8 @@ deletes its saves. Copy your saves out first.
 
 NEW IN THIS UPDATE
 ------------------
-- Title Update 27 / Online bundles: the builder support comes in a follow-up update; 1.3.0 builders make 1.0 bundles.
+- Title Update 27 and Online in the same app: the builder also makes a title-update package from your own
+  title-update file (and DLC packs, if you have them). Online keeps your character, rank, cash and stats.
 - Turnip graphics driver on Adreno 730 phones (Galaxy Z Fold4 / Flip4 class), on by default.
 - App icon choice and launcher menu music (made by the builder from your discs).
 - Its own game code for the single-screen app: tap the minimap to open the map, phone tracking.

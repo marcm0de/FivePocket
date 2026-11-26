@@ -10,7 +10,8 @@ Android (single-screen and Thor Edition) and the Windows builders; iOS and Duo f
 **Everyone**: install the 1.3.0 app over the old one, build your package with the 1.3.0 builder and import it (saves are kept).
 
 ### Added
-- Title Update 27 / Online bundles: the builder support comes in a follow-up update; 1.3.0 builders make 1.0 bundles.
+- Title Update 27 and Online in the same app: the builder also makes a title-update package from your own title-update
+  file (and your own DLC packs, if any); Online keeps character, rank, cash, purchases, look and stats across restarts.
 - Turnip graphics driver on Adreno 730 phones, on by default (single-screen app; about 4-7 % more fps measured).
 - App icon choice (three colourways), launcher menu music made from your discs.
 - Single-screen app built from its own game code (minimap tap, phone tracking).
@@ -23,7 +24,6 @@ Android (single-screen and Thor Edition) and the Windows builders; iOS and Duo f
 
 ### Known issues
 - Fresh install: "Preparing menu sounds" can wait up to about 4 minutes once.
-- Title Update 27 Online: trainer actions are unavailable for now (fix coming in a hotfix); they work in story mode and in 1.0 Online.
 
 ## [1.2.1] - 2026-11-22
 
