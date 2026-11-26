@@ -51,7 +51,7 @@ def load_iterate():
 def compiler_root(command: list[str]) -> str:
     """The compiler's host folder (.../prebuilt/<host>), from the driver's own path."""
     driver = Path(command[0])
-    if driver.name != 'clang++' or driver.parent.name != 'bin':
+    if driver.name not in ('clang++', 'clang') or driver.parent.name != 'bin':   # (clang: a C unit, COR-02's decoder, 2026-11-24)
         raise SystemExit(f'unexpected compiler driver: {command[0]}')
     return str(driver.parent.parent)
 
@@ -84,7 +84,7 @@ def make_dependency_words(text: str) -> list[str]:
     """The prerequisites of a compiler's Make dependency file ("target: dep dep ..."), as Make reads them: a backslash
     before a newline continues the line, "\\ " is a space inside a path (and "\\\\" a backslash), "$$" is "$"; the target
     ends at the first ':' followed by whitespace or the end (so a Windows drive letter such as "C:\\" stays in a path).
-    2026-10-16, after the v544 audit: splitting on any whitespace cut "headers\\ with\\ spaces/config.h" into three
+    2026-10-16, after Codex's v544 audit: splitting on any whitespace cut "headers\\ with\\ spaces/config.h" into three
     fragments that do not exist, and the caller then dropped the header silently."""
     text = text.replace('\\\r\n', ' ').replace('\\\n', ' ')
     i = 0
@@ -128,7 +128,135 @@ def path_words(command: list[str]) -> list[str]:
     return found
 
 
+# Title update 27 (TU27 lane tu27-a127..a132r; owner 2026-11-24 "Online progress saves on a normal player install"): save_sandbox.h
+# forces the TU 27 test sandbox unless RECOMP_TU27_RELEASE_SAVES is defined, so a TU 27 library built without it keeps no saves
+# outside a tu27 test copy. The lane's release recipe (tu27-a132r) defines it on exactly the units that read the switch; a
+# recipe for players must too. Checked on the compiler's own dependency lists, so a new reader of the switch is covered.
+TU27 = 'RECOMP_TITLE_UPDATE'
+RELEASE_SAVES = 'RECOMP_TU27_RELEASE_SAVES'
+
+
+def defined(command: list[str]) -> dict:
+    """{macro: value} of a compile command's -D options ('-DX=v', '-DX', or '-D' 'X=v'), less those a later -U removes."""
+    out = {}
+    for i, w in enumerate(command):
+        d = command[i + 1] if w == '-D' and i + 1 < len(command) else w[2:] if w.startswith('-D') else None
+        if w.startswith('-U'):
+            out.pop(w[2:] or (command[i + 1] if i + 1 < len(command) else ''), None)
+        elif d:
+            name, _, value = d.partition('=')
+            out[name] = value or '1'
+    return out
+
+
+def release_saves_problems(units, read) -> list[str]:
+    """Why a build may not become a players' recipe for title update 27 ([] when it may, or when it is no TU 27 build).
+    units: [(name, compile command, paths the compiler read)]; read(path) -> bytes."""
+    tu = [(n, c, deps) for n, c, deps in units if defined(c).get(TU27) == '27']
+    if not tu:
+        return []
+    seen = {}
+
+    def tests(path):
+        if path not in seen:
+            seen[path] = RELEASE_SAVES.encode() in read(path)
+        return seen[path]
+
+    problems, readers = [], 0
+    for name, command, deps in tu:
+        if any(tests(p) for p in deps):
+            readers += 1
+            if RELEASE_SAVES not in defined(command):
+                problems.append(f'{name} reads the {RELEASE_SAVES} switch but is not compiled with -D{RELEASE_SAVES}=1: '
+                                'it would force the TU 27 test sandbox (no player saves)')
+    if not readers:
+        problems.append(f'no unit of this TU 27 build reads the {RELEASE_SAVES} switch: a build before tu27-a127 forces the '
+                        'test sandbox (no player saves)')
+    return problems
+
+
+RECORDED_KINDS = {'chunk': 'chunk', 'host': 'runtime', 'kept': 'runtime', 'mapping': 'extra', 'extra': 'extra'}
+
+
+def freeze_recorded(build: Path, root: Path = ROOT) -> dict:
+    """The manifest of a finished build whose every object has a meta file beside it (its command, and every file it read with
+    its SHA-256), as tu_compile.py writes them: the commands are taken word for word as recorded, nothing is derived from a build
+    plan. The same checks as a planned freeze: one compiler, objects and inputs unchanged since the build, every input a file of
+    the repository (or of the compiler), no two paths that differ only by letter case, and the title update 27 saves rule."""
+    receipt = json.loads((build / 'build.json').read_text(encoding='utf-8'))
+    units, unit_deps, inputs, compiler_inputs, toolroot = [], {}, {}, {}, None
+    for r in receipt['records']:
+        obj = Path(r['object'])
+        meta = json.loads(obj.with_name(obj.name[:-2] + '.meta.json').read_text(encoding='utf-8'))
+        command = list(meta['command'])
+        here = compiler_root(command)
+        if toolroot not in (None, here):
+            raise SystemExit(f'two compilers in one build: {toolroot} and {here}')
+        toolroot = here
+        if sha256(obj) != meta['object_sha256'] or meta['object_sha256'] != r['object_sha256']:
+            raise SystemExit(f'{r["name"]}: the object on disk is not the one the build recorded')
+        if r.get('kind') not in RECORDED_KINDS:
+            raise SystemExit(f'{r["name"]}: unknown unit kind {r.get("kind")!r}')
+        for path, digest in meta['deps'].items():
+            if not os.path.isfile(path) or sha256(Path(path)) != digest:
+                raise SystemExit(f'{r["name"]}: {path} changed since the build')
+        dep, src = command[command.index('-MF') + 1], command[command.index('-c') + 1]
+        unit_deps[r['name']] = list(meta['deps'])
+        for p in unit_deps[r['name']] + [p for p in path_words(command) if p not in (str(obj), dep, command[0])]:
+            if os.path.isfile(p):
+                (compiler_inputs if p == toolroot or p.startswith(toolroot + '/') else inputs).setdefault(p, None)
+        units.append(dict(name=r['name'], kind=RECORDED_KINDS[r['kind']], command=command, source=src, object=str(obj),
+                          depfile=dep, object_sha256=meta['object_sha256'], seconds_here=r.get('seconds')))
+    problems = release_saves_problems([(u['name'], u['command'], unit_deps[u['name']]) for u in units],
+                                      lambda path: Path(path).read_bytes())
+    if problems:
+        raise SystemExit('a title update 27 build without the players\' saves:\n  ' + '\n  '.join(problems))
+    lc = json.loads((build / 'link-command.json').read_text(encoding='utf-8'))
+    library = lc[lc.index('-o') + 1]
+    if sha256(Path(library)) != receipt['library_sha256']:
+        raise SystemExit('the library on disk is not the one the build recorded')
+    produced = {u['object'] for u in units}
+    link_inputs = []
+    for p in path_words(lc):
+        if p in produced or p == library or p.endswith('/link.d') or p == toolroot or p.startswith(toolroot + '/'):
+            continue
+        if not os.path.isfile(p):
+            raise SystemExit(f'link input is not a file here: {p}')
+        inputs.setdefault(p, None)
+        link_inputs.append(p)
+    outside = sorted(p for p in inputs if not p.startswith(str(root) + '/'))
+    if outside:
+        raise SystemExit('inputs outside the repository and the compiler:\n  ' + '\n  '.join(outside[:20]))
+    for table in (inputs, compiler_inputs):
+        for p in table:
+            table[p] = dict(sha256=sha256(Path(p)), size=os.path.getsize(p))
+    lowered = {}
+    for p in inputs:
+        lowered.setdefault(p.lower(), []).append(p)
+    clashes = [v for v in lowered.values() if len(v) > 1]
+    if clashes:
+        raise SystemExit(f'paths that differ only by letter case (one folder on Windows): {clashes[:5]}')
+    return dict(schema='frozen-build/1', attempt=receipt['attempt'], repo_root=str(root), compiler_root=toolroot,
+                cwd=receipt.get('cwd') or str(root / json.loads((root / 'local-analysis/.attempts/config.json').read_text())['build_cwd']),
+                build_jobs_here=None, units=units,
+                link=dict(command=lc, library=library, library_sha256=receipt['library_sha256'], seconds_here=None,
+                          inputs=sorted(set(link_inputs))),
+                inputs={os.path.relpath(p, root): v for p, v in sorted(inputs.items())},
+                compiler_inputs={os.path.relpath(p, toolroot): v for p, v in sorted(compiler_inputs.items())})
+
+
 def main() -> None:
+    if '--recorded' in sys.argv[1:]:
+        ap = argparse.ArgumentParser(description='freeze a build whose objects carry meta files (tu_compile.py)')
+        ap.add_argument('--recorded', type=Path, required=True, help='the build folder: build.json, link-command.json, obj/*.meta.json')
+        ap.add_argument('--out', type=Path, required=True)
+        args = ap.parse_args()
+        manifest = freeze_recorded(args.recorded.resolve())
+        args.out.mkdir(parents=True, exist_ok=True)
+        (args.out / 'manifest.json').write_text(json.dumps(manifest, indent=1) + '\n', encoding='utf-8', newline='\n')
+        (args.out / 'inputs.txt').write_text(''.join(p + '\n' for p in manifest['inputs']), encoding='utf-8', newline='\n')
+        print(f'frozen {len(manifest["units"])} units, {len(manifest["inputs"])} inputs ({sum(v["size"] for v in manifest["inputs"].values())} bytes)')
+        return
     ap = argparse.ArgumentParser()
     ap.add_argument('--attempts', type=Path, required=True, help='folder holding the built attempt (…/attempts)')
     ap.add_argument('--attempt', required=True)
@@ -164,6 +292,7 @@ def main() -> None:
 
     units, inputs, compiler_inputs = [], {}, {}
     toolroot = None
+    unit_deps = {}
 
     def note_input(path: str) -> None:
         if toolroot and (path == toolroot or path.startswith(toolroot + '/')):
@@ -185,7 +314,8 @@ def main() -> None:
         if got != expected:
             raise SystemExit(f'{name}: the object on disk is not the one the build recorded')
         note_input(str(src))
-        for p in dependency_paths(dep, cwd):
+        unit_deps[name] = dependency_paths(dep, cwd)
+        for p in unit_deps[name]:
             if not os.path.isfile(p):   # (2026-10-16) a dependency the compiler named and that is not a file: a parse error or a lost input, never silently dropped
                 raise SystemExit(f'{name}: the dependency file names {p}, which is not a file')
             note_input(p)
@@ -242,6 +372,11 @@ def main() -> None:
             continue
         if os.path.isfile(p) and not (toolroot and p.startswith(toolroot)) and sha256(Path(p)) != expected:
             raise SystemExit(f'base link input changed since the base build: {p}')
+
+    problems = release_saves_problems([(u['name'], u['command'], unit_deps[u['name']]) for u in units],
+                                      lambda path: Path(path).read_bytes())
+    if problems:
+        raise SystemExit('a title update 27 build without the players\' saves:\n  ' + '\n  '.join(problems))
 
     outside = sorted(p for p in inputs if not p.startswith(str(ROOT) + '/'))
     if outside:

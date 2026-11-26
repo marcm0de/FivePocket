@@ -48,6 +48,8 @@ MUTANTS = [
     ('the pins file is not read', "        dxc = json.loads(a.dxc.read_text(encoding='utf-8')) if a.dxc else None\n", "        dxc = None\n"),
     ('a pins file that holds no record is passed on', "        if a.dxc and not isinstance(dxc, dict):\n            raise ValueError('the shader compiler is not pinned as the front end wants it: the pins file holds no record')\n", ""),
     ('the report does not name the fetched files', "    fetched = f\", {len(release['dxc']['files'])} shader compiler files fetched by the builder\" if 'dxc' in release else ''\n", "    fetched = ''\n"),
+    ('the app version is not checked', "    check_app_versions(package, targets or {}, release_version)\n", ""),
+    ('one matching app version is enough', "        if any(v != release_version for v in versions):\n", "        if all(v != release_version for v in versions):\n"),
 ]
 # The tracked pins of Microsoft's release are data: copies with one field changed, read by the test through DXC_PINS.
 PINS = HERE.parent / 'windows' / 'dxc-v1.9.2607.json'

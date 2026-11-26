@@ -19,12 +19,12 @@ class HalfColorStoreTests(unittest.TestCase):
             for h in range(65536):
                 rgba=[0,0x3C00,0,0x3C00];rgba[lane]=h
                 result=packed_half(tuple(rgba))
-                rejected=(h&0x7C00)==0x7C00 or ((h&0x7C00)==0 and h&1023)!=0
+                rejected=(h&0x7C00)==0x7C00 # subnormals are written: nearest packing of their true value
                 self.assertEqual(result is None,rejected)
                 if not rejected:
                     want=pack(tuple(bits(v) for v in struct.unpack('<4e',struct.pack('<4H',*rgba))))
                     self.assertEqual(result,want);valid+=1
-            self.assertEqual(valid,61442)
+            self.assertEqual(valid,63488)
 
     def test_all_7e3_codes_survive_half_storage(self):
         for code in range(1024):

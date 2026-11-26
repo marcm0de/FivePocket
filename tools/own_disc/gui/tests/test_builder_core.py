@@ -66,8 +66,8 @@ class Synthetic(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             B.fetch(release, self.cache, True, self.archive)
 
-    def package(self, name='fixture', profile_id='fixture', profiles=None, host=None):
-        """the fixture's side folder as a builder package; returns (fixture, release path)"""
+    def package(self, name='fixture', profile_id='fixture', profiles=None, host=None, change=None):
+        """the fixture's side folder as a builder package; returns (fixture, release path). change(fx) edits the profile."""
         (self.root / name).mkdir()
         fx = fixture.Fixture(self.root / name)
         for stage in fx.profile['stages']:
@@ -75,6 +75,8 @@ class Synthetic(unittest.TestCase):
                 stage['argv'][0] = '${python}'
         fx.stage('shaders')['source'] = '${repo}/pack.bin'
         fx.profile['id'] = profile_id
+        if change:
+            change(fx)
         fx.profile_path.write_text(json.dumps(fx.profile))
         shutil.copyfile(fx.profile_path, fx.side / 'profile.json')
         release = {'ndk': self.ndk, 'schema': 'builder-release/1', 'host': host or B.host_id(), 'profile': 'profile.json',
@@ -130,21 +132,6 @@ class Editions(Synthetic):
         self.assertTrue(found)
         self.assertFalse(any(e.available for e in found))
         self.assertIn('another computer', found[0].reason)
-
-    @unittest.skipUnless(hasattr(core.B, 'emulated_x64_on_arm_linux'), 'the Linux builder is not released yet')
-    def test_a_linux_package_on_an_arm_linux_computer_says_why_it_is_not_offered(self):
-        # Google's Linux NDK is x86_64 only: an ARM64 Linux computer (or an x86_64 Python translated on one) is told so
-        fx, release = self.package(host='linux-x86_64')
-        for here, emulated in (('linux-arm64', False), ('linux-x86_64', True)):
-            with self.subTest(here=here), mock.patch.object(B, 'host_id', return_value=here), \
-                    mock.patch.object(B, 'emulated_x64_on_arm_linux', return_value=emulated):
-                found = [e for e in core.discover_editions([fx.side]) if e.release_path == release]
-                self.assertTrue(found)
-                self.assertFalse(any(e.available for e in found))
-                self.assertEqual({e.reason for e in found}, {B.LINUX_ON_ARM})
-        with mock.patch.object(B, 'host_id', return_value='linux-x86_64'), \
-                mock.patch.object(B, 'emulated_x64_on_arm_linux', return_value=False):
-            self.assertTrue(any(e.available for e in core.discover_editions([fx.side]) if e.release_path == release))
 
     def test_packages_beside_each_other_are_found_from_their_parent_folder(self):
         a, _ = self.package('thor', profile_id='fivepocket-thor-edition-v852-3')
@@ -234,8 +221,8 @@ class Plan(Synthetic):
 
     def test_the_gui_runs_the_commands_the_guided_cli_runs(self):
         out = B.default_work(self.fx.side) / 'out'
-        guided = self.guided_commands([str(self.discs['play']), str(self.discs['install']), ''], self.cache)
-        plan = core.make_plan([self.edition], self.discs, out, self.cache, licences_accepted=False)
+        guided = self.guided_commands([str(self.discs['play']), str(self.discs['install']), '', ''], self.cache)
+        plan = core.make_plan([self.edition], self.discs, out, self.cache, licences_accepted=False, app_icon=core.APP_ICON_DEFAULT)
         gui = [core.builder_words(s, self.cache) for s in plan if s.kind != 'verify']
         self.assertEqual(gui, guided)
         self.assertEqual([s.kind for s in plan], ['check', 'build', 'verify'])
@@ -246,8 +233,8 @@ class Plan(Synthetic):
         with self.assertRaises(core.PlanError) as refused:
             core.make_plan([self.edition], self.discs, out, empty, licences_accepted=False)
         self.assertIn(self.ndk['license_url'], str(refused.exception))
-        guided = self.guided_commands([str(self.discs['play']), str(self.discs['install']), '', 'y'], empty)
-        plan = core.make_plan([self.edition], self.discs, out, empty, licences_accepted=True)
+        guided = self.guided_commands([str(self.discs['play']), str(self.discs['install']), '', '', 'y'], empty)
+        plan = core.make_plan([self.edition], self.discs, out, empty, licences_accepted=True, app_icon=core.APP_ICON_DEFAULT)
         self.assertEqual([core.builder_words(s, empty) for s in plan if s.kind != 'verify'], guided)
         self.assertEqual(plan[0].kind, 'fetch')
         self.assertEqual(core.licence_terms([self.edition])[0]['url'], self.ndk['license_url'])
@@ -264,6 +251,63 @@ class Plan(Synthetic):
         plan = core.make_plan([self.edition, second], self.discs, self.root / 'out', self.cache, licences_accepted=False)
         self.assertEqual([s.kind for s in plan], ['check', 'build', 'verify'] * 2)
         self.assertEqual({s.release for s in plan[:3]}, {str(self.release)})
+
+    def test_the_app_icon_pick_goes_to_every_build_with_its_edition(self):
+        fx2, _ = self.package('thor', profile_id='fivepocket-thor-edition-v852-3')         # 1.2.1: each edition its own download
+        fx4, _ = self.package('fold', profile_id='fivepocket-v1944-3')
+        fx3, _ = self.package('apple', profiles={'ios': 'profile.json', 'duo': 'profile.json'})
+        editions = [e for e in core.discover_editions([fx2.side, fx4.side, fx3.side]) if e.available]
+        self.assertEqual(sorted(e.key for e in editions), ['duo', 'fold', 'ios', 'thor'])
+        self.assertEqual(core.APP_ICON_CHOICES[0], 'pink-blue-dusk')                          # the owner's default comes first
+        for colourway in core.APP_ICON_CHOICES:
+            with self.subTest(colourway=colourway):
+                plan = core.make_plan(editions, self.discs, self.root / 'out', self.cache, licences_accepted=False, app_icon=colourway)
+                builds = {s.edition: s.words for s in plan if s.kind == 'build'}
+                self.assertEqual(len(builds), 4)
+                for e in editions:
+                    self.assertEqual(builds[e.ident][-4:], ['--app-icon', colourway, '--edition', e.key])
+                self.assertFalse(any('--app-icon' in s.words for s in plan if s.kind != 'build'))
+        plain = core.make_plan(editions, self.discs, self.root / 'out', self.cache, licences_accepted=False)
+        self.assertFalse(any('--app-icon' in s.words for s in plain))
+        with self.assertRaises(core.PlanError):
+            core.make_plan(editions, self.discs, self.root / 'out', self.cache, licences_accepted=False, app_icon='sunrise')
+
+    def test_the_players_title_update_and_dlc_go_to_the_editions_whose_profiles_take_them(self):
+        def updated_game(fx):
+            game = fx.profile['games'][0]
+            game['title_update'] = {'label': 'Fake update 2', 'executable_sha256': game['executable_sha256'],
+                                    'executable_size': game['executable_size'], 'files': [{'path': 'default.xexp', 'size': 1, 'sha256': '0' * 64}]}
+            game['dlc'] = {'title_id': '12345678'}
+        fx2, _ = self.package('updated', change=updated_game)
+        updated = [e for e in core.discover_editions([fx2.side]) if e.available][0]
+        self.assertEqual((updated.update, updated.dlc), ('needed', True))
+        self.assertEqual((self.edition.update, self.edition.dlc), ('', False))                # the 1.0 profile takes neither
+        update, dlc = self.root / 'tu00000009_00000000', self.root / 'my dlc'
+        with self.assertRaises(core.PlanError) as refused:
+            core.make_plan([updated], self.discs, self.root / 'out', self.cache, licences_accepted=False, extras={'dlc': dlc})
+        self.assertIn('Choose your Title update in the sidebar', str(refused.exception))
+        plan = core.make_plan([updated, self.edition], self.discs, self.root / 'out', self.cache, licences_accepted=False,
+                              extras={'update': update, 'dlc': dlc})
+        builds = {s.edition: s.words for s in plan if s.kind == 'build'}
+        self.assertEqual(builds[updated.ident][-4:], ['--title-update', str(update), '--dlc', str(dlc)])
+        self.assertFalse({'--title-update', '--dlc'} & set(builds[self.edition.ident]))
+
+    def test_the_window_says_early_when_a_title_update_or_dlc_pick_is_the_wrong_file(self):
+        tu = self.root / 'tu00000009_00000000'
+        fixture.stfs_package(tu)
+        packs = self.root / 'my dlc'
+        packs.mkdir()
+        fixture.stfs_package(packs / 'ABC123', content_type=2, metadata_version=2)
+        (packs / 'DLC-INDEX.txt').write_text('index')
+        self.assertEqual(core.check_extra('update', tu), ('Title-update package, 1 files', []))
+        self.assertEqual(core.check_extra('update', packs)[1], [])                           # an unpacked update folder
+        what, problems = core.check_extra('update', packs / 'ABC123')                        # a DLC pack picked as the update
+        self.assertIn('Not a title-update package', problems[0])
+        self.assertTrue(core.check_extra('dlc', packs)[0].startswith('1 pack, '))
+        self.assertIn('No DLC pack here', core.check_extra('dlc', packs / 'DLC-INDEX.txt')[1][0])
+        empty = self.root / 'empty'
+        empty.mkdir()
+        self.assertIn('No DLC pack here', core.check_extra('dlc', empty)[1][0])
 
 
 class FakeProcess:
@@ -426,6 +470,58 @@ class RealPipeline(Synthetic):
         self.assertTrue(core.Runner(session2).run())
         self.assertEqual(fx.executed()[executed_before:], ['decode', 'codegen', 'link'])
         self.assertEqual(made.read_bytes(), cli_bytes)
+
+    def test_the_windows_app_icon_reaches_each_android_bundle_as_the_command_line_s_does(self):
+        # 1.2.1: the two Android downloads unpacked side by side, each edition built from its own package
+        fx, rel_thor = self.package('thor', profile_id='fivepocket-thor-edition-v852-3')
+        fx_fold, rel_fold = self.package('fold', profile_id='fivepocket-v1944-3')
+        discs = {'play': fx.disc, 'install': self.install_disc()}
+        out = B.default_work(fx.side) / 'out'
+        twins = [e for e in core.discover_editions([fx.side, fx_fold.side]) if e.available]
+        self.assertEqual(sorted(e.key for e in twins), ['fold', 'thor'])
+        plan = core.make_plan(twins, discs, out, self.cache, licences_accepted=False, app_icon='golden-sunset')
+        session = core.Session.new(self.root / 'state', discs, out, self.cache, plan)
+        lines = []
+        self.assertTrue(core.Runner(session, events=lambda e: lines.append(e.data.get('text', '')) if e.kind == 'line' else None).run(),
+                        '\n'.join(lines))
+        made = {o['edition'].split(' (')[0]: Path(o['path']) for o in session.outputs() if o['kind'] == 'bundle'}
+        self.assertEqual(len(made), 2)
+        for e in twins:
+            bundle = next(p for label, p in made.items() if label == e.label.split(' (')[0])
+            word = {'thor': 'thor', 'fold': 'android'}[e.key]
+            self.assertEqual(db.verify_bundle(bundle)['app_icon'], f'{word}-golden-sunset')
+            cli_out = self.root / f'cli-{e.key}'
+            argv = ['--release', str({'thor': rel_thor, 'fold': rel_fold}[e.key]), '--cache', str(self.cache), 'build', '--play-disc', str(fx.disc),
+                    '--install-disc', str(discs['install']), '--out', str(cli_out), '--app-icon', 'golden-sunset', '--edition', e.key]
+            with contextlib.redirect_stdout(io.StringIO()) as said:
+                self.assertEqual(B.main(argv), 0, said.getvalue())
+            self.assertEqual(next(cli_out.glob('*.bundle')).read_bytes(), bundle.read_bytes())
+
+    def test_the_windows_dlc_reaches_the_bundle_as_the_command_line_s_does(self):
+        packs = self.root / 'my dlc'
+        packs.mkdir()
+        fixture.stfs_package(packs / 'ABC123', content_type=2, metadata_version=2)
+
+        def takes_dlc(fx):
+            fixture.BundleFormat2.second(None, fx)
+            fx.profile['games'][0]['dlc'] = {'title_id': '12345678'}
+        fx, release = self.package(change=takes_dlc)
+        discs = {'play': fx.disc, 'install': self.install_disc()}
+        out = B.default_work(fx.side) / 'out'
+        edition = [e for e in core.discover_editions([fx.side]) if e.available][0]
+        plan = core.make_plan([edition], discs, out, self.cache, licences_accepted=False, extras={'dlc': packs})
+        session = core.Session.new(self.root / 'state', discs, out, self.cache, plan)
+        lines = []
+        self.assertTrue(core.Runner(session, events=lambda e: lines.append(e.data.get('text', '')) if e.kind == 'line' else None).run(),
+                        '\n'.join(lines))
+        made = Path(session.outputs()[0]['path'])
+        self.assertEqual([c['name'] for c in db.verify_bundle(made)['components'] if c['role'] == 'dlc-package'], ['dlc/abc123'])
+        cli_out = self.root / 'cli'
+        argv = ['--release', str(release), '--cache', str(self.cache), 'build', '--play-disc', str(fx.disc),
+                '--install-disc', str(discs['install']), '--out', str(cli_out), '--dlc', str(packs)]
+        with contextlib.redirect_stdout(io.StringIO()) as said:
+            self.assertEqual(B.main(argv), 0, said.getvalue())
+        self.assertEqual(next(cli_out.glob('*.bundle')).read_bytes(), made.read_bytes())
 
     def test_cancel_stops_a_real_builder_process(self):
         fx, release = self.package()

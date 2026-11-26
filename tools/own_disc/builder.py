@@ -10,6 +10,18 @@ would collide between players' free Apple teams). --bundle-id overrides it for o
 FILE.mobileprovision] [--entitlements FILE.plist] --out NEW.ipa signs it with the player's own identity (ios_sign.py,
 codesign reads the player's keychain) and writes the signed .ipa.
 
+Title update and DLC (next update): build --title-update FILE gives the player's own title-update package and --dlc PATH their
+own DLC packs (a pack file, or a folder of them; repeatable), which the code bundle then carries for the app. With a title update
+the build uses the release's title-update profile for the target ("title_update_profiles" in release.json, hash-bound like the
+others): the updated game's code, library and shaders; without one, the 1.0 profile. Neither file ever travels in a builder
+download.
+
+App icon (next update, owner 2026-11-22): builder build --app-icon pink-blue-dusk|golden-sunset|peach-rose names the logo the
+player picked (the builder window's app-icon pick). An iOS or Duo build gives the app that icon (the profile's ${appicon}); a
+code bundle names it for the Android app ("app_icon": "<edition>-<colourway>" in its manifest). --edition thor|fold names the
+app when one profile makes both Android apps (the window says which); otherwise the target or the package's own edition. With
+no --app-icon an iOS build takes its profile's default icon and a code bundle names none.
+
 A release is an audited payload plus builder-release/1 JSON. This development
 lane intentionally supplies no production release pins. Fetch has no usable
 publisher URL until an approved release is supplied; tests use local ZIPs only.
@@ -30,6 +42,7 @@ import stat
 import sys
 import sysconfig
 import tempfile
+import time
 import urllib.request
 import uuid
 import zipfile
@@ -84,8 +97,6 @@ def inside(root, name):
 def load_release(path):
     r = read_json(path)
     root = path.resolve().parent
-    if host_id() == 'linux-arm64' and r.get('host') == 'linux-x86_64':
-        raise Refusal(LINUX_ON_ARM)
     if r.get('schema') != 'builder-release/1' or r.get('host') != host_id():
         raise Refusal(f'wrong or missing release for {host_id()}; obtain the matching builder download')
     if not isinstance(r.get('files'), list) or not r['files']:
@@ -110,12 +121,13 @@ def load_release(path):
         raise Refusal('a target profile is not hash-bound in the release; obtain a corrected release')
     if 'profile' not in r:
         raise Refusal('no production profile; obtain the approved B1/B2 profile')
+    updated = r.get('title_update_profiles', {})
+    if not isinstance(updated, dict) or any(t not in TARGETS + ('default',) or v not in listed for t, v in updated.items()):
+        raise Refusal('a title-update profile is not hash-bound in the release; obtain a corrected release')
     overlay_spec(r)
     apps_spec(r)
     if r['host'] == 'win32-arm64' and 'compiler_overlay' not in r:
         raise Refusal(NO_NATIVE_COMPILER)
-    if r['host'] == 'linux-arm64' and 'compiler_overlay' not in r:
-        raise Refusal(LINUX_ON_ARM)
     return r, root
 
 
@@ -125,23 +137,6 @@ def load_release(path):
 # NDK clang's own source and patches) and lays them over the verified NDK (overlay_spec, fetch_compiler_overlay).
 NO_NATIVE_COMPILER = ("this Windows on ARM release carries no native compiler programs (compiler_overlay): the NDK's x64 "
                       "compiler would run emulated and does not reproduce the release; obtain the Windows on ARM builder release")
-
-# Linux (2026-11-11): Google publishes the NDK's Linux compiler programs for x86_64 only (android-ndk-r27c-linux.zip). On an ARM64
-# Linux computer they would run under an emulator (qemu-user, FEX, box64, Rosetta in a Linux VM), whose compile-time floating point
-# is not shown to match (the Windows on ARM case above). A linux-arm64 release would need native programs (compiler_overlay) as
-# Windows on ARM has; none exists, so an ARM64 Linux computer is refused, and so is an x86_64 Python translated on an ARM64 kernel.
-LINUX_ON_ARM = ("Linux on ARM (aarch64) can't build a bit-identical release: Google's Android NDK for Linux is x86_64 only and "
-                "would run emulated; use an x86_64 PC")
-
-
-def linux_kernel_is_arm(cpuinfo='/proc/cpuinfo'):
-    """Linux: whether the kernel runs on an ARM CPU. The kernel writes /proc/cpuinfo, so an x86_64 Python translated on an
-    ARM64 kernel (qemu-user, Rosetta in a Linux VM) still reads the ARM field there (CPU implementer). An
-    emulator that rewrites the file as well (FEX) is not seen here."""
-    try:
-        return 'CPU implementer' in Path(cpuinfo).read_text(encoding='ascii', errors='replace')
-    except OSError:
-        return False
 
 
 def overlay_spec(release):
@@ -387,6 +382,139 @@ class GoogleOnlyRedirect(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
+FETCH_LOCK = '.fetch-lock'
+STAGING = re.compile(r'f-[0-9a-f]{8}')
+
+
+def process_alive(pid):
+    """Whether process pid runs on this computer: True, False, or None when this host cannot tell."""
+    if pid <= 0:
+        return False
+    if sys.platform == 'win32':
+        import ctypes
+        from ctypes import wintypes
+        k = ctypes.WinDLL('kernel32', use_last_error=True)
+        k.OpenProcess.restype = wintypes.HANDLE
+        h = k.OpenProcess(0x1000, False, pid)                  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return {87: False, 5: True}.get(ctypes.get_last_error())   # no such process; another user's (it runs)
+        try:
+            code = wintypes.DWORD()
+            if not k.GetExitCodeProcess(h, ctypes.byref(code)):
+                return None
+            return code.value == 259                            # STILL_ACTIVE
+        finally:
+            k.CloseHandle(h)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return None
+    return True
+
+
+def process_start(pid):
+    """When process pid started, in seconds since the epoch, or None when it is gone or this host cannot tell."""
+    try:
+        if sys.platform == 'win32':
+            import ctypes
+            from ctypes import wintypes
+            k = ctypes.WinDLL('kernel32', use_last_error=True)
+            k.OpenProcess.restype = wintypes.HANDLE
+            h = k.OpenProcess(0x1000, False, pid)
+            if not h:
+                return None
+            try:
+                t = [wintypes.FILETIME() for _ in range(4)]
+                if not k.GetProcessTimes(h, *(ctypes.byref(x) for x in t)):
+                    return None
+                return ((t[0].dwHighDateTime << 32) | t[0].dwLowDateTime) / 1e7 - 11644473600   # FILETIME: 100 ns since 1601
+            finally:
+                k.CloseHandle(h)
+        if sys.platform.startswith('linux'):
+            ticks = int(Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()[19])
+            boot = next(int(line.split()[1]) for line in Path('/proc/stat').read_text().splitlines() if line.startswith('btime '))
+            return boot + ticks / os.sysconf('SC_CLK_TCK')
+        out = subprocess.run(['ps', '-o', 'lstart=', '-p', str(pid)], capture_output=True, text=True, timeout=10,
+                             env=dict(os.environ, LC_ALL='C'))
+        return time.mktime(time.strptime(out.stdout.strip(), '%a %b %d %H:%M:%S %Y')) if out.returncode == 0 else None
+    except (OSError, ValueError, IndexError, StopIteration, subprocess.SubprocessError):
+        return None
+
+
+def stale_fetch_lock(lock):
+    """Why the cache's fetch lock is stale (its fetch has ended), or None while a fetch may still own it. The lock names
+    the process that wrote it, that process's start time and the computer; an older builder (1.2.x) wrote the bare
+    process id, which is stale when that process is gone or started after the lock was written (a reused id)."""
+    try:
+        text, written = lock.read_text(encoding='utf-8').strip(), lock.stat().st_mtime
+    except OSError:
+        return None
+    try:
+        rec = json.loads(text) if text.startswith('{') else {'pid': int(text)}
+        pid = int(rec['pid'])
+    except (ValueError, KeyError, TypeError):
+        # written by a fetch that stopped between creating and filling it, unless that is happening this moment
+        return 'it names no process and is more than a minute old' if time.time() - written > 60 else None
+    if rec.get('host') not in (None, platform.node()):
+        return None                                     # another computer's fetch (a shared folder): this one cannot tell
+    alive = process_alive(pid)
+    if alive is False:
+        return f'process {pid}, the fetch that wrote it, has ended'
+    started = process_start(pid) if alive else None
+    if started is None:
+        return None
+    if rec.get('started') is not None:
+        return None if abs(started - float(rec['started'])) <= 2 else f'process id {pid} now belongs to another program'
+    return f'process id {pid} now belongs to a program started after the lock was written' if started > written + 2 else None
+
+
+def remove_leftover_staging(cache, n, owned):
+    """After a stale lock: the staging folders an interrupted fetch left (f-xxxxxxxx). The stale fetch's own folder (named in
+    its lock) goes; any other one goes only when unfinished: an unpacking in progress (p) or a download shorter than the
+    pinned archive. A complete download stays (the evidence of a refused or finished fetch, as fetch keeps it)."""
+    for d in sorted(cache.iterdir()):
+        if not (d.is_dir() and not d.is_symlink() and STAGING.fullmatch(d.name)):
+            continue
+        downloads = [f for f in d.iterdir() if f.name in ('download.zip', 'download.dmg') and f.is_file()]
+        unfinished = (d / 'p').exists() or any(f.stat().st_size < n['size'] for f in downloads) or not downloads
+        if d.name == owned or unfinished:
+            size = sum(f.stat().st_size for f in d.rglob('*') if f.is_file() and not f.is_symlink())
+            shutil.rmtree(d)
+            print(f'Removed the interrupted fetch\'s staging folder {d} ({size / 1e6:.0f} MB).')
+
+
+def take_fetch_lock(cache, n, staged):
+    """The cache's fetch lock for this process, or a refusal naming the lock while another fetch may own it. A stale lock
+    (its fetch ended without removing it: the window or console closed, the computer stopped) is removed with a note,
+    with the staging folders that fetch left."""
+    lock = cache / FETCH_LOCK
+    record = json.dumps({'pid': os.getpid(), 'started': process_start(os.getpid()), 'host': platform.node(), 'staged': staged},
+                        sort_keys=True)
+    for attempt in (1, 2):
+        try:
+            with lock.open('x', encoding='utf-8', newline='\n') as guard:
+                guard.write(record)
+        except FileExistsError:
+            why = stale_fetch_lock(lock) if attempt == 1 else None
+            if why is None:
+                raise Refusal(f'another fetch owns the cache: wait for it to finish. If no builder window or console is running '
+                              f'a fetch, close the builder and delete this file, then run fetch again: {lock}')
+            try:
+                owned = json.loads(lock.read_text(encoding='utf-8')).get('staged')
+            except (OSError, ValueError, AttributeError):
+                owned = None
+            lock.unlink(missing_ok=True)
+            print(f'Removed a stale fetch lock ({why}): {lock}')
+            continue
+        if attempt == 2:
+            remove_leftover_staging(cache, n, owned if isinstance(owned, str) else None)
+        return lock
+
+
 def fetch(release, cache, accepted, archive=None, opener=None):
     n = ndk_spec(release)
     print(f'Compiler: {n["url"]}; {n["size"]} bytes; SHA-256 {n["sha256"][:12]}')
@@ -401,15 +529,10 @@ def fetch(release, cache, accepted, archive=None, opener=None):
         print('Compiler already verified.'); return
     if shutil.disk_usage(cache).free < n['size'] + n['unpacked_bytes']:
         raise Refusal('not enough disk for archive and extracted compiler; free space or choose --cache elsewhere')
-    lock = cache / '.fetch-lock'
+    name = 'f-' + uuid.uuid4().hex[:8]                    # short: the NDK's members run 176 characters deep
+    lock = take_fetch_lock(cache, n, name)
     try:
-        guard = lock.open('x', encoding='utf-8', newline='\n')
-    except FileExistsError:
-        raise Refusal('another fetch owns the cache; wait for it or inspect the stale lock before removing it')
-    try:
-        with guard:
-            guard.write(str(os.getpid()))
-        staged = cache / ('f-' + uuid.uuid4().hex[:8])     # short: the NDK's members run 176 characters deep
+        staged = cache / name
         staged.mkdir()
         zip_path = staged / ('download.dmg' if n['url'].endswith('.dmg') else 'download.zip')
         # No request is opened until all release/consent/disk checks above passed.
@@ -749,13 +872,54 @@ def bundle_id_for(target: str, work: Path, given: str | None = None) -> str:
     return f'com.fivepocket.{player}.{target}'
 
 
+# the edition's word in the owner's logo file names (five-pocket-<word>-<colourway>.png): the single-screen app is "android"
+APP_ICON_EDITION = {'thor': 'thor', 'fold': 'android', 'ios': 'ios', 'duo': 'duo'}
+# the pick every builder offers (the window and the guided mode), Pink/Blue Dusk first and by default (owner 2026-11-22)
+APP_ICON_DEFAULT = 'pink-blue-dusk'
+APP_ICON_CHOICES = (APP_ICON_DEFAULT,) + tuple(c for c in db.APP_ICON_COLOURWAYS if c != APP_ICON_DEFAULT)
+APP_ICON_NAMES = {'pink-blue-dusk': 'Pink/Blue Dusk', 'golden-sunset': 'Golden Sunset', 'peach-rose': 'Peach/Rose'}
+
+
+def package_edition(root, release, target=None) -> str:
+    """the app a build is for: the target, else the package's own edition (edition.txt, written by stage_gui --edition), else
+    the Thor Edition when the default profile is a Thor-line one, else the single-screen app (the builder window's rule)"""
+    if target:
+        return target
+    try:
+        word = (Path(root) / 'edition.txt').read_text(encoding='utf-8').strip()
+    except OSError:
+        word = ''
+    if word in ('thor', 'fold'):
+        return word
+    try:
+        profile_id = str(read_json(inside(root, release['profile'])).get('id', ''))
+    except (OSError, ValueError, KeyError, AttributeError, Refusal):
+        profile_id = ''
+    return 'thor' if 'thor' in f'{profile_id} {release.get("profile", "")}'.lower() else 'fold'
+
+
+def app_icon_env(colourway, root, release, target, edition=None) -> dict:
+    """what the engine reads for the player's app icon: BUILDER_APP_ICON (the colourway, or empty: no pick) and
+    BUILDER_APP_EDITION (the app's word for --edition, else for package_edition)"""
+    if not colourway:
+        return {'BUILDER_APP_ICON': '', 'BUILDER_APP_EDITION': ''}
+    if edition and target and edition != target:
+        raise Refusal(f'--edition {edition} does not match the build target --{target}')
+    return {'BUILDER_APP_ICON': colourway, 'BUILDER_APP_EDITION': APP_ICON_EDITION[edition or package_edition(root, release, target)]}
+
+
 def say_bundle_id(bundle_id: str, target: str) -> None:
     print(f'Bundle identifier of your {target} app: {bundle_id}\n'
           'ALWAYS SIGN WITH THIS IDENTIFIER. Signing with another one makes a new app with empty storage: '
           'the imported discs and your saves would be gone.')
 
 
-def profile_of(release, target):
+def profile_of(release, target, title_update=False):
+    """The profile a build uses. With the player's title update, the release's title-update profile for the target when it
+    names one (next update, owner via lead 2026-11-24: one builder makes the 1.0 bundle, or the title update's when the player
+    gives one); otherwise the target's own profile, whose game entry then says whether it takes a title update."""
+    if title_update and (target or 'default') in release.get('title_update_profiles', {}):
+        return release['title_update_profiles'][target or 'default']
     if target is None:
         return release['profile']
     if target not in release.get('profiles', {}):
@@ -770,17 +934,10 @@ def emulated_x64_on_arm():
     return sys.platform == 'win32' and host_id() == 'win32-x86_64' and platform.machine().lower() == 'arm64'
 
 
-def emulated_x64_on_arm_linux():
-    # Linux: an x86_64 interpreter on an ARM64 kernel (see LINUX_ON_ARM); refused before anything runs, like Windows on ARM.
-    return sys.platform.startswith('linux') and host_id() == 'linux-x86_64' and linux_kernel_is_arm()
-
-
-def check(release, root, work, cache, target=None):
+def check(release, root, work, cache, target=None, title_update=False):
     if emulated_x64_on_arm():
         raise Refusal("Windows on ARM can't build a bit-identical release with the x64 Android toolchain (emulated floating point "
                       "differs); use an x64 PC")
-    if emulated_x64_on_arm_linux():
-        raise Refusal(LINUX_ON_ARM)
     check_paths(work, cache)
     estimate = release.get('estimates', {})
     need = estimate.get('min_free_bytes')
@@ -795,7 +952,7 @@ def check(release, root, work, cache, target=None):
         raise Refusal('not enough free disk; free space or choose another --work directory')
     ndk = existing_compiler(release, root, cache)
     existing_dxc(release, root)
-    profile = db.load_profile(inside(root, profile_of(release, target)))
+    profile = db.load_profile(inside(root, profile_of(release, target, title_update)))
     # Check every supported game's plan without pretending either disc was identified.
     with environment({'BUILDER_PYTHON': str(inside(root, release['python'])) if release.get('python') else sys.executable,
                       'BUILDER_NDK_ROOT': str(ndk), 'BUILDER_PACKAGE_ROOT': str(root)}):
@@ -899,18 +1056,16 @@ def how_to(release_path):
     switches = '--accept-ndk-license --accept-dxc-license' if dxc else '--accept-ndk-license'
     accept = 'each switch says you accept the one' if dxc else 'the switch says you accept them'
     out = default_work(Path()) / 'out'
-    # Linux: a terminal, and the launcher named by its path (the folder is not on PATH); Windows and macOS read as before
-    prompt, run = ('a terminal', './builder') if sys.platform.startswith('linux') else ('a command prompt', 'builder')
     return f'''This program makes the game's code bundle for the phone app from your own two disc images.
-Open {prompt} in this folder and run, in this order:
+Open a command prompt in this folder and run, in this order:
 
-  1. {run} fetch {switches}
+  1. builder fetch {switches}
        Once. Fetches the compiler (Android NDK, {compiler}).
        Read its terms first ({terms}); {accept}.{shaders}
-  2. {run} build --play-disc PLAY-DISC.iso --install-disc INSTALL-DISC.iso
+  2. builder build --play-disc PLAY-DISC.iso --install-disc INSTALL-DISC.iso
        Needs {space}. Takes from half an hour to a few hours.
        The bundle is written to {out} in this folder.
-  3. {run} verify BUNDLE
+  3. builder verify BUNDLE
        Checks a bundle and prints its seal: the app shows the same seal when it imports the bundle.
 
 {ios_text(targets)}A build that was interrupted goes on where it stopped when step 2 is run again.
@@ -986,10 +1141,6 @@ def disc_role(path, games):
 
 
 def default_cache():
-    # Linux: the player's cache folder by the XDG rule ($XDG_CACHE_HOME when it is an absolute path, else ~/.cache)
-    xdg = os.environ.get('XDG_CACHE_HOME', '')
-    if sys.platform.startswith('linux') and 'LOCALAPPDATA' not in os.environ and os.path.isabs(xdg):
-        return Path(xdg) / 'own-disc-builder'
     return Path(os.environ.get('LOCALAPPDATA', str(Path.home() / '.cache'))) / 'own-disc-builder'
 
 
@@ -1075,6 +1226,16 @@ def guided(release_path, dropped=None, ask=input, wait_at_end=False, cache=None)
                 break
             except checkout_refusal.CheckoutRefusal as error:
                 say(f'  REFUSED: {error}. Choose another folder.')
+        say('\nApp icon: the logo your app shows on the home screen.')
+        for i, c in enumerate(APP_ICON_CHOICES, 1):
+            say(f'  {i}. {APP_ICON_NAMES[c]}')
+        icon = None
+        while icon is None:
+            answer = question(f'Type 1-{len(APP_ICON_CHOICES)} and press Enter, or press Enter for {APP_ICON_NAMES[APP_ICON_DEFAULT]}: ').strip()
+            if not answer:
+                icon = APP_ICON_DEFAULT
+            elif answer.isdigit() and 1 <= int(answer) <= len(APP_ICON_CHOICES):
+                icon = APP_ICON_CHOICES[int(answer) - 1]
         base = ['--release', str(release_path), '--cache', str(cache)]
         target_word = ['--' + target] if target else []
         fetched = True
@@ -1100,7 +1261,7 @@ def guided(release_path, dropped=None, ask=input, wait_at_end=False, cache=None)
         steps.append(('Checking this computer', ['check'] + target_word))
         steps.append(('Building (half an hour to a few hours; an interrupted build goes on where it stopped when started again)',
                       ['build'] + target_word + ['--play-disc', str(discs['play']), '--install-disc', str(discs['install']),
-                                                 '--out', str(out)]))
+                                                 '--out', str(out), '--app-icon', icon, '--edition', package_edition(root, release, target)]))
     except (Refusal, db.BuilderError, OSError, ValueError, KeyError) as error:
         say(f'REFUSED: {error}. Nothing was built.')
         return finish(2)
@@ -1147,6 +1308,8 @@ def main(argv=None):
     b = sub.add_parser('build')
     b.add_argument('--work', type=Path); b.add_argument('--play-disc', type=Path, required=True)
     b.add_argument('--install-disc', type=Path); b.add_argument('--out', type=Path); b.add_argument('--allow-heavy', action='store_true')
+    b.add_argument('--title-update', type=Path)          # the player's own title-update file, for a build of the updated game
+    b.add_argument('--dlc', type=Path, action='append', default=[])   # the player's own DLC pack or folder of packs (repeatable)
     b.add_argument('--report', type=Path); b.add_argument('--stop-after')
     target = b.add_mutually_exclusive_group()
     target.add_argument('--ios', dest='target', action='store_const', const='ios')
@@ -1154,6 +1317,8 @@ def main(argv=None):
     target.add_argument('--thor', dest='target', action='store_const', const='thor')
     target.add_argument('--fold', dest='target', action='store_const', const='fold')
     b.add_argument('--bundle-id')
+    b.add_argument('--app-icon', choices=db.APP_ICON_COLOURWAYS)   # the logo the player picked (the window's app-icon pick)
+    b.add_argument('--edition', choices=TARGETS)                   # which app, when one profile makes both Android apps
     v = sub.add_parser('verify'); v.add_argument('bundle', type=Path); v.add_argument('--executable-sha256')
     p = sub.add_parser('app'); p.add_argument('--edition', required=True, choices=APP_EDITIONS)
     p.add_argument('--out', type=Path, required=True); p.add_argument('--archive', type=Path)
@@ -1192,17 +1357,20 @@ def main(argv=None):
             bundle_id = ((bundle_id_for(target, work.resolve(), a.bundle_id) if a.cmd == 'build' else f'com.fivepocket.check.{target}')
                          if target in APP_TARGETS else None)
             with environment({'BUILDER_BUNDLE_ID': bundle_id} if bundle_id else {}):
-                ndk = check(release, root, work.resolve(), a.cache.resolve(), target)
+                ndk = check(release, root, work.resolve(), a.cache.resolve(), target, bool(getattr(a, 'title_update', None)))
             if a.cmd == 'build':
                 # A player who starts a build has asked for the long stages too: the engine's switch for them is
                 # always given (--allow-heavy is still taken on the command line, and changes nothing).
-                command = ['build', '--profile', str(inside(root, profile_of(release, target))), '--work', str(work),
+                command = ['build', '--profile', str(inside(root, profile_of(release, target, bool(a.title_update)))), '--work', str(work),
                            '--play-disc', str(a.play_disc), '--repo', str(root), '--data-root', str(work), '--allow-heavy']
-                for name in ('install_disc', 'out', 'report', 'stop_after'):
+                for name in ('install_disc', 'title_update', 'out', 'report', 'stop_after'):
                     if getattr(a, name): command += ['--' + name.replace('_', '-'), str(getattr(a, name))]
+                for path in a.dlc:
+                    command += ['--dlc', str(path)]
                 with environment(dict({'BUILDER_PYTHON': str(inside(root, release['python'])) if release.get('python') else sys.executable,
                                        'BUILDER_NDK_ROOT': str(ndk), 'BUILDER_PACKAGE_ROOT': str(root)},
-                                      **({'BUILDER_BUNDLE_ID': bundle_id} if bundle_id else {}))):
+                                      **({'BUILDER_BUNDLE_ID': bundle_id} if bundle_id else {}),
+                                      **app_icon_env(a.app_icon, root, release, target, a.edition))):
                     code = db.main(command)
                 if bundle_id:
                     say_bundle_id(bundle_id, target)

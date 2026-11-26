@@ -42,6 +42,8 @@ LOG_NAME = 'gui-build.log'
 GIB = 1 << 30
 SMALL_IMAGE = 1 * GIB                   # under this an image is surely trimmed or cut off: said, not refused
 DISC_LABELS = {'play': 'Disc 2 (Play)', 'install': 'Disc 1 (Install)'}
+# the player's own files beyond the discs (next update): their title update (build --title-update) and DLC packs (--dlc)
+EXTRA_LABELS = {'update': 'Title update', 'dlc': 'DLC packs'}
 EDITION_LABELS = {
     'thor': 'FivePocket Thor Edition (AYN Thor, two screens)',
     'fold': 'FivePocket single screen (Galaxy Fold and other phones)',
@@ -77,6 +79,8 @@ class Edition:
     available: bool
     reason: str = ''
     stages: tuple = ()               # the profile's stage ids, in order (for the progress view)
+    update: str = ''                 # the player's title update: '' not taken, 'taken' (some game of the profile), 'needed' (every game)
+    dlc: bool = False                # the profile takes the player's DLC packs
 
     @property
     def ident(self) -> str:
@@ -100,6 +104,10 @@ def _key_of_profile(profile_id: str, rel: str) -> str:
     text = f'{profile_id} {rel}'.lower()
     return 'thor' if 'thor' in text else 'fold'
 
+
+# Next update (owner 2026-11-22): the app icon the player picks in the window (the owner's logo in one of three colourways),
+# the guided mode's choices; each build step passes it as builder build --app-icon with --edition
+APP_ICON_DEFAULT, APP_ICON_CHOICES, APP_ICON_NAMES = B.APP_ICON_DEFAULT, B.APP_ICON_CHOICES, B.APP_ICON_NAMES
 
 EDITION_FILE = 'edition.txt'   # one word at a package's root, written by stage_gui.py --edition: the edition its window opens as
 
@@ -143,8 +151,6 @@ def discover_editions(paths) -> list:
             continue
         host = release.get('host')
         reason = '' if host == here else f'this builder package is made for another computer ({host}); this one is {here}'
-        if host == 'linux-x86_64' and (here == 'linux-arm64' or B.emulated_x64_on_arm_linux()):
-            reason = B.LINUX_ON_ARM                        # its compiler would run emulated (builder.py says why)
         if release.get('schema') != 'builder-release/1' or 'profile' not in release:
             reason = 'not a complete builder release (no schema or profile)'
         profiles = release.get('profiles') if isinstance(release.get('profiles'), dict) else {}
@@ -159,9 +165,12 @@ def discover_editions(paths) -> list:
             preferred[str(root)] = _package_edition(root) or key
             entries += [(t, t, rel) for t, rel in profiles.items() if rel != default]
         for key, target, rel in entries:
-            _, stages, _ = _profile_facts(root, rel)
+            _, stages, games = _profile_facts(root, rel)
             kind = 'ipa' if key in B.APP_TARGETS else 'bundle'
-            editions.append(Edition(key, EDITION_LABELS.get(key, key), kind, root, release_path, target, not reason, reason, stages))
+            tu = [isinstance(g, dict) and 'title_update' in g for g in games]
+            editions.append(Edition(key, EDITION_LABELS.get(key, key), kind, root, release_path, target, not reason, reason, stages,
+                                    'needed' if tu and all(tu) else ('taken' if any(tu) else ''),
+                                    any(isinstance(g, dict) and bool(g.get('dlc')) for g in games)))
     for key in ('thor', 'fold'):                    # the Android editions: listed, greyed, where no package here makes them
         if not any(e.key == key and e.kind == 'bundle' for e in editions):
             editions.append(Edition(key, EDITION_LABELS[key], 'bundle', None, None, None, False, ANDROID_ELSEWHERE))
@@ -258,6 +267,32 @@ def place_disc(discs: dict, path, games: list) -> str:
     if discs.get(role) is not None and discs.get('install' if role == 'play' else 'play') is None and role == 'install':
         return 'install'
     return role
+
+
+def check_extra(slot: str, path) -> tuple[str, list]:
+    """the window's quick look at the player's title update or DLC: (what it is, problems). The build reads them through
+    and checks them fully before any stage (disc_builder.py); this only says early when the wrong file was picked."""
+    p = Path(path)
+    if slot == 'update':
+        if p.is_dir():
+            return 'A folder of the title update\'s files', []
+        try:
+            import title_update
+            with title_update.TitleUpdatePackage(p) as package:
+                count = sum(1 for e in package.entries if not e.directory)
+            return f'Title-update package, {count} files', []
+        except (ValueError, OSError) as error:
+            return '', [f'Not a title-update package: {error}']
+    if p.is_dir():
+        files = sorted(q for q in p.iterdir() if db.DLC_FILE_NAME.fullmatch(q.name) and q.is_file() and not q.is_symlink())
+    else:
+        files = [p] if p.is_file() and db.DLC_FILE_NAME.fullmatch(p.name) else []
+    if not files:
+        return '', ['No DLC pack here: a pack keeps the name the console gave it (letters and digits)']
+    if len(files) > db.DLC_MAX:
+        return '', [f'{len(files)} packs; the app takes at most {db.DLC_MAX}']
+    total = sum(f.stat().st_size for f in files)
+    return f'{len(files)} pack{"s" if len(files) > 1 else ""}, {total / 1e6:.0f} MB (each is read through when the build starts)', []
 
 
 def check_pair(discs: dict) -> list:
@@ -372,16 +407,23 @@ def licence_terms(editions) -> list:
     return terms
 
 
-def make_plan(editions, discs: dict, out, cache, licences_accepted: bool, fetched=None) -> list:
+def make_plan(editions, discs: dict, out, cache, licences_accepted: bool, fetched=None, app_icon=None, extras=None) -> list:
     """The steps for these editions, as the guided command line runs them for each: fetch (only when that package's
     compilers are missing, and only after the licences were accepted), check, build, verify (code bundles; the iOS
-    builder signs nothing and has no verify step). fetched: {release path: bool} when already measured."""
+    builder signs nothing and has no verify step). fetched: {release path: bool} when already measured. app_icon: the
+    colourway the player picked (APP_ICON_CHOICES), passed to each build with its edition; None passes none. extras: the
+    player's own title update and DLC ({'update': path, 'dlc': path}), passed to each edition whose profile takes them."""
+    extras = {k: v for k, v in (extras or {}).items() if v}
     steps, packages = [], []
     problems = check_pair(discs) + check_output(out)
     for e in editions:
         problems += edition_problems(e)
     if not editions:
         problems.append('Choose at least one edition')
+    if app_icon is not None and app_icon not in APP_ICON_CHOICES:
+        problems.append(f'Unknown app icon {app_icon!r}')
+    problems += [f'Choose your {EXTRA_LABELS["update"]} in the sidebar: {e.label} is built for the game with its title update'
+                 for e in editions if e.update == 'needed' and 'update' not in extras]
     if problems:
         raise PlanError('; '.join(dict.fromkeys(problems)))
     fetched = dict(fetched or {})
@@ -412,7 +454,10 @@ def make_plan(editions, discs: dict, out, cache, licences_accepted: bool, fetche
             steps.append(Step(f'check:{e.ident}', 'check', 'Check this computer', words=['check'] + target, **base))
         steps.append(Step(f'build:{e.ident}', 'build', 'Build', stages=list(e.stages),
                           words=['build'] + target + ['--play-disc', str(discs['play']), '--install-disc', str(discs['install']),
-                                                     '--out', str(where)], **base))
+                                                     '--out', str(where)] + (['--app-icon', app_icon, '--edition', e.key] if app_icon else [])
+                                + (['--title-update', str(extras['update'])] if e.update and 'update' in extras else [])
+                                + (['--dlc', str(extras['dlc'])] if e.dlc and 'dlc' in extras else []),
+                          **base))
         if e.kind == 'bundle':
             steps.append(Step(f'verify:{e.ident}', 'verify', 'Verify the bundle', words=['verify', VERIFY_TARGET], **base))
             app = app_pin(e)

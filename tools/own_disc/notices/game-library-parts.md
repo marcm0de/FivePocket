@@ -222,12 +222,15 @@ Source: https://github.com/rexglue/rexglue-sdk/blob/c94f5ebdcb3c9d1a460ca48e04f9
 The game library is linked with libavcodec and libavutil from FFmpeg, which decode the game's XMA audio. FFmpeg is
 free software licensed under the LGPL version 2.1 or later; the full text of version 2.1 is section 8 of this file. FFmpeg is a trademark
 of Fabrice Bellard, originator of the FFmpeg project. This app is not part of FFmpeg and is not endorsed by it.
+One file is changed by this project: libavcodec/wmaprodec.c gains a flush callback for the raw-frames XMA decoder, so
+that a flushed decoder starts the next sound as a newly opened one does. The whole change is
+tools/own_disc/xma_decoder/cor02/xmaframes-flush.patch in the builder; the changed file is beside it.
 
   Built from:      the Xenia project's version of FFmpeg, https://github.com/xenia-project/FFmpeg
                    (it adds the XMA decoders to FFmpeg), revision 15ece0882e8d5875051ff5b73c5a8326f7cee9f5.
   Parts enabled:   the XMA parser and XMA decoders only; no GPL or non-free parts (CONFIG_GPL 0, CONFIG_NONFREE 0).
   Linked:          statically, into the game library.
-  Modifications:   none recorded by this project.
+  Modifications:   libavcodec/wmaprodec.c, the flush callback described above.
   Configuration:   --target-os=android --arch=aarch64 --enable-cross-compile --disable-everything --disable-autodetect --disable-programs --disable-doc --disable-network --disable-avdevice --disable-avformat --disable-avfilter --disable-swscale --disable-swresample --disable-postproc --enable-decoder='xma1,xma2,xmaframes' --enable-parser=xma --enable-static --disable-shared --enable-pic --disable-debug --enable-small --extra-cflags=-O2
 
   Your rights under the LGPL: you may obtain the source code of the FFmpeg libraries used here, change them and use

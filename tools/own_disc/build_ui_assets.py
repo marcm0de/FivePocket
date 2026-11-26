@@ -2,9 +2,9 @@
 """Builder ui stage (1.2.0): the launcher's fonts, glyphs, pictures and menu sounds, made from the player's own play disc.
 
     build_ui_assets.py --play DISC --generated CODEGEN_PPC --xmem XMEM_TOOL --ffmpeg-source FFMPEG_TAR --output NEW_DIR
-                       [--key-address 0x83bd4c98] [--parts fonts,glyphs,art,sounds]
+                       [--key-address 0x83bd4c98] [--parts fonts,glyphs,art,sounds[,music]]
 
-Reads seven files out of the play disc's archives (the archive key is recovered in memory from this run's generated code,
+Reads nine files out of the play disc's archives (the archive key is recovered in memory from this run's generated code,
 as the shader-extract stage does; it is never written or printed):
   xbox360a.rpf!/data/cdimages/scaleform_platform_360.rpf!/font_lib_efigs_360.gfx   -> ui/chalet-london.ttf, chalet-comprime.ttf,
                                                                                        pricedown.ttf          (ui_fonts.py)
@@ -13,6 +13,8 @@ as the shader-extract stage does; it is never written or printed):
                                                                                        tile-sandbox.png, tile-online.png
   audio_rel.rpf!/config/sounds.dat54.rel + sfx/audio_misc.rpf!/resident/frontend.awc -> ui/sounds/select.wav, back.wav
                                                                                        (ui_sounds.py, xma2_decode.py)
+  audio_rel.rpf!/config/sounds.dat54.rel + sfx/audio_music.rpf!/interactive_music/td_greyhound.awc
+                                                                                    -> ui/music/launcher-music.wav (ui_music.py)
 and writes them under NEW_DIR/ui with NEW_DIR/ui/manifest.txt ("sha256 size name" for every file directly in ui/, the gate the
 launcher's UiAssets checks) and NEW_DIR/report.json (origins, sizes, output hashes; no disc content). The app imports them as the
 bundle's "ui-asset" components (BUNDLE-FORMAT.md) and reads them in place from files/game-install/bundle/ui.
@@ -50,9 +52,10 @@ SOURCES = {
     'loadingscreen6': 'xbox360a.rpf!/data/cdimages/scaleform_frontend.rpf!/loadingscreen6.xtd',
     'sounds': 'audio_rel.rpf!/config/sounds.dat54.rel',
     'bank': 'sfx/audio_misc.rpf!/resident/frontend.awc',
+    'music': 'sfx/audio_music.rpf!/interactive_music/td_greyhound.awc',
 }
 PARTS = {'fonts': ['fonts'], 'glyphs': ['glyphs'], 'art': ['loadingscreen0', 'loadingscreen1', 'loadingscreen5', 'loadingscreen6'],
-         'sounds': ['sounds', 'bank']}
+         'sounds': ['sounds', 'bank'], 'music': ['sounds', 'music']}
 RESOURCE_PREFIX = 16          # bytes before the XMem frames of a 360 resource payload
 
 
@@ -164,6 +167,11 @@ def build(found: dict, xmem: Path, ffmpeg_source: Path | None, parts: list) -> d
             raise Refusal('the sounds need --ffmpeg-source (the pinned FFmpeg source archive of the xma-decoder stage)')
         for name, data in ui_sounds.render_sounds(found['sounds'][1], found['bank'][1], ffmpeg_source).items():
             out['ui/sounds/' + name] = data
+    if 'music' in parts:
+        import ui_music
+        if ffmpeg_source is None:
+            raise Refusal('the music needs --ffmpeg-source (the pinned FFmpeg source archive of the xma-decoder stage)')
+        out['ui/music/launcher-music.wav'] = ui_music.render_music(found['sounds'][1], found['music'][1], ffmpeg_source)
     return out
 
 
@@ -179,6 +187,8 @@ def main(argv=None) -> int:
         ap.add_argument('--' + name, type=Path, required=True)
     ap.add_argument('--ffmpeg-source', type=Path)
     ap.add_argument('--key-address', type=lambda s: int(s, 0), default=0x83bd4c98)
+    # the default stays the 1.2.0 set: a profile made before the music (its stage argv names no parts) neither lists ui_music.py
+    # among its tools nor pins the music; ui_stage.py names every part
     ap.add_argument('--parts', default='fonts,glyphs,art,sounds')
     a = ap.parse_args(argv)
     parts = [p for p in a.parts.split(',') if p]

@@ -11,7 +11,8 @@ writes that inventory for a finished package folder and reads it back the way th
                     [--ndk-image-root PATH]
                     --min-free-bytes N [--build-time TEXT] [--dxc PINS.json] [--compiler-overlay LIST.json] [--apps PINS.json]
                     [--output FILE]
-                    [--target ios=REL] [--target duo=REL] [--target thor=REL] [--target fold=REL]
+                    [--target ios=REL] [--target duo=REL] [--target thor=REL] [--target fold=REL] [--release-version X.Y.Z]
+                    [--title-update default=REL] [--title-update ios=REL] ...
 
 Every regular file below DIR is listed (name with forward slashes, SHA-256, whether it is a program), except
 Python's own cache folders (the inventory is written after the files are read, so it never lists itself). A link or a name the front end would refuse stops the whole run
@@ -29,6 +30,14 @@ tools/own_disc/macos/python-compat), and the front end gives its stages the Pyth
 --target NAME=REL (2026-11-05, the Mac release with the iOS apps): another profile of the package, built by builder build
 --NAME (ios, duo); written as "profiles" and, like the default profile, it must be a file of the package.
 
+--title-update NAME=REL (2026-11-24, title update 27): the profile a build uses for NAME (default = the package's own profile's target; ios,
+duo, thor, fold as --target) when the player gives their own title update; written as "title_update_profiles" (builder.profile_of reads it) and,
+like every profile, it must be a file of the package.
+
+--release-version X.Y.Z (2026-11-24, the lead after 1.2.0 shipped apps saying 1.1.5): required when the package has an iOS or
+Duo target. Every such profile's stages must give the app exactly this version (the ios_app stage's --version, which becomes
+CFBundleShortVersionString / CFBundleVersion); a profile with another version, or with none, refuses the release.
+
 --dxc names the pins of a shader compiler release the player's builder fetches from its publisher (address, size and
 hash of the archive, the licence address, and for every file taken out of it its name in the archive, its place in
 the package, its size and hash; tools/own_disc/windows/dxc-v1.9.2607.json). They are written into the inventory as
@@ -45,6 +54,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import os
 import sys
 from pathlib import Path
@@ -124,8 +134,43 @@ def native_compiler(package: Path, overlay: list, release: dict) -> dict:
     return {'files': files}
 
 
+APPLE_TARGETS = ('ios', 'duo')
+RELEASE_VERSION = re.compile(r'[0-9]+(\.[0-9]+){1,2}')
+
+
+def app_versions(profile: dict) -> list:
+    """the --version every stage of an iOS/Duo profile gives the app (ios_app.py), in stage order"""
+    found = []
+    for stage in profile.get('stages') or []:
+        argv = stage.get('argv') if isinstance(stage, dict) else None
+        if isinstance(argv, list):
+            found += [argv[i + 1] for i, word in enumerate(argv[:-1]) if word == '--version']
+    return found
+
+
+def check_app_versions(package: Path, targets: dict, release_version: str | None) -> None:
+    """the apps of an iOS/Duo package carry the release's version (1.2.0 shipped apps saying 1.1.5)"""
+    apple = {t: r for t, r in sorted(targets.items()) if t in APPLE_TARGETS}
+    if not apple:
+        return
+    if release_version is None:
+        raise ValueError(f'a package with {"/".join(apple)} apps needs --release-version (the version the apps carry)')
+    if not RELEASE_VERSION.fullmatch(release_version):
+        raise ValueError(f'--release-version must be numeric X.Y or X.Y.Z, as Apple requires: {release_version!r}')
+    for target, rel in apple.items():
+        try:
+            profile = json.loads((package / rel).read_text(encoding='utf-8'))
+        except (OSError, ValueError) as error:
+            raise ValueError(f'the {target} profile cannot be read: {error}') from None
+        versions = app_versions(profile) if isinstance(profile, dict) else []
+        if not versions:
+            raise ValueError(f'the {target} profile gives its app no --version (the release is {release_version})')
+        if any(v != release_version for v in versions):
+            raise ValueError(f'the {target} profile gives its app version {", ".join(sorted(set(versions)))}, not the release\'s {release_version}')
+
+
 def make(package: Path, host: str, profile: str, python: str, ndk: dict, min_free_bytes: int, build_time: str | None, output: Path, dxc: dict | None = None,
-         targets: dict | None = None, compiler_overlay: list | None = None, apps: dict | None = None) -> dict:
+         targets: dict | None = None, compiler_overlay: list | None = None, apps: dict | None = None, release_version: str | None = None, title_update: dict | None = None) -> dict:
     package = package.resolve()
     output = output.resolve()
     if not package.is_dir():
@@ -148,6 +193,14 @@ def make(package: Path, host: str, profile: str, python: str, ndk: dict, min_fre
     for what, name in [('profile', profile)] + ([('Python', python)] if python else []) + [(f'{t} profile', r) for t, r in sorted((targets or {}).items())]:
         if name not in listed:
             raise ValueError(f'the {what} is not a file of the package: {name}')
+    if title_update:
+        if set(title_update) - set(builder.TARGETS + ('default',)):
+            raise ValueError(f'unknown title-update target: {sorted(set(title_update) - set(builder.TARGETS + ("default",)))}')
+        for t_, name in sorted(title_update.items()):
+            if name not in listed:
+                raise ValueError(f'the {t_} title-update profile is not a file of the package: {name}')
+        release['title_update_profiles'] = dict(title_update)
+    check_app_versions(package, targets or {}, release_version)
     try:
         builder.ndk_spec(release)
     except builder.Refusal as error:
@@ -191,6 +244,8 @@ def main(argv=None) -> int:
     ap.add_argument('--apps', type=Path)
     ap.add_argument('--output', type=Path)
     ap.add_argument('--target', action='append', default=[], metavar='NAME=REL')
+    ap.add_argument('--release-version', metavar='X.Y.Z')
+    ap.add_argument('--title-update', action='append', default=[], metavar='NAME=REL')
     a = ap.parse_args(argv)
     ndk = {'url': a.ndk_url, 'sha256': a.ndk_sha256, 'size': a.ndk_size, 'directory': a.ndk_directory, 'unpacked_bytes': a.ndk_unpacked_bytes}
     if a.ndk_image_root:
@@ -201,10 +256,13 @@ def main(argv=None) -> int:
             raise ValueError('the shader compiler is not pinned as the front end wants it: the pins file holds no record')
         if any('=' not in item for item in a.target):
             raise ValueError('--target wants NAME=REL')
+        if any('=' not in item for item in a.title_update):
+            raise ValueError('--title-update wants NAME=REL')
         targets = dict(item.split('=', 1) for item in a.target)
+        title_update = dict(item.split('=', 1) for item in a.title_update)
         overlay = json.loads(a.compiler_overlay.read_text(encoding='utf-8')) if a.compiler_overlay else None
         release = make(a.package, a.host, a.profile, a.python, ndk, a.min_free_bytes, a.build_time, a.output or a.package / 'release.json', dxc,
-                       targets, overlay, json.loads(a.apps.read_text(encoding='utf-8')) if a.apps else None)
+                       targets, overlay, json.loads(a.apps.read_text(encoding='utf-8')) if a.apps else None, a.release_version, title_update or None)
     except (ValueError, OSError) as error:
         print('RELEASE_REFUSED:', error, file=sys.stderr)
         return 2

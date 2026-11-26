@@ -190,8 +190,9 @@ def render(tracks, waves):
     return bytes(frames)
 
 
-def wav(frames):
-    fmt = struct.pack('<HHIIHH', 1, 2, RATE, RATE * 4, 4, 16)
+def wav(frames, rate=RATE):
+    """16-bit stereo PCM frames as a RIFF WAVE file."""
+    fmt = struct.pack('<HHIIHH', 1, 2, rate, rate * 4, 4, 16)
     body = b'WAVE' + b'fmt ' + struct.pack('<I', len(fmt)) + fmt + b'data' + struct.pack('<I', len(frames)) + frames
     return b'RIFF' + struct.pack('<I', len(body)) + body
 

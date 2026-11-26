@@ -4,6 +4,14 @@ These patches are maintained outside the pinned `tools/XenonRecomp` submodule
 so a checkout remains reproducible and the changes can be submitted upstream.
 They contain no game code or game-derived data.
 
+`0020-unsigned-byte-word-vector-ops.patch` emits five vector forms the generator dropped as
+comments: `vmaxub` / `vminub` (unsigned byte max/min), `vsubuws` (unsigned word subtract saturating at
+zero; VSCR[SAT] not modelled, as for the other saturating forms), `vpkuhum(128)` (modulo halfword pack,
+mirroring `vpkuhus`'s lane order) and `vrlw(128)` (word rotate by vB & 31). They occur only in the title
+update 27 image (27 sites in two new functions); the 1.0 image has none, and its generated code is
+byte-identical with and without the patch (378/378 files, builder-gui 2026-11-24). From the TU27 lane
+(2026-11-13), with text and value checks in XenonTests/exact_vector_recompiler.cc.
+
 `0019-normshort4-vector-pack-unpack.patch` implements type4 four-component signed
 16-bit packing/unpacking in biased float representations. Unpacking -32768
 produces quiet NaN; packing saturates to -32767..32767, with unordered inputs

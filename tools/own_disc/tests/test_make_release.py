@@ -73,16 +73,61 @@ class Release(unittest.TestCase):
         self.assertNotIn('python', release)
         self.assertNotIn('python', builder.load_release(self.out)[0])
 
+    def app_profile(self, name, *versions):
+        """an iOS/Duo profile whose ios_app stages give the app these versions (written into the package before make)"""
+        stages = [{'id': 'kit', 'argv': ['${tools}/ios_kit.py', 'make']}] + [
+            {'id': f'app{i}', 'argv': ['${tools}/ios_app.py', 'app', '--sdk-label', '27.1', '--version', v]} for i, v in enumerate(versions)]
+        path = self.package / 'profile' / name
+        path.write_text(json.dumps({'schema': 'synthetic', 'prerequisites': [{'argv': ['clang++', '--version']}], 'stages': stages}), encoding='utf-8')
+        return f'profile/{name}'
+
     def test_target_profiles_are_written_and_must_be_files_of_the_package(self):
-        release = self.make(targets={'ios': 'profile/profile.json'})
-        self.assertEqual(release['profiles'], {'ios': 'profile/profile.json'})
-        self.assertEqual(builder.load_release(self.out)[0]['profiles'], {'ios': 'profile/profile.json'})
+        ios = self.app_profile('ios.json', '1.3.0')
+        release = self.make(targets={'ios': ios}, release_version='1.3.0')
+        self.assertEqual(release['profiles'], {'ios': ios})
+        self.assertEqual(builder.load_release(self.out)[0]['profiles'], {'ios': ios})
         self.out.unlink()
         with self.assertRaisesRegex(ValueError, 'duo profile is not a file'):
-            self.make(targets={'duo': 'profile/duo.json'})
+            self.make(targets={'duo': 'profile/duo.json'}, release_version='1.3.0')
         with self.assertRaisesRegex(ValueError, 'unknown target'):
             self.make(targets={'tv': 'profile/profile.json'})
         self.assertFalse(self.out.exists())
+
+    def test_title_update_profiles_are_written_hash_bound_and_picked_by_the_front_end(self):
+        # title update 27 (2026-11-24): builder.profile_of reads title_update_profiles; nothing wrote it before this option
+        (self.package / 'profile/tu.json').write_bytes(b'{"tu": true}')
+        release = self.make(title_update={'default': 'profile/tu.json'})
+        self.assertEqual(release['title_update_profiles'], {'default': 'profile/tu.json'})
+        loaded = builder.load_release(self.out)[0]
+        self.assertEqual(builder.profile_of(loaded, None, title_update=True), 'profile/tu.json')
+        self.assertEqual(builder.profile_of(loaded, None, title_update=False), 'profile/profile.json')
+        self.out.unlink()
+        with self.assertRaisesRegex(ValueError, 'default title-update profile is not a file'):
+            self.make(title_update={'default': 'profile/none.json'})
+        with self.assertRaisesRegex(ValueError, 'unknown title-update target'):
+            self.make(title_update={'tv': 'profile/tu.json'})
+        self.assertFalse(self.out.exists())
+
+    def test_ios_and_duo_apps_carry_the_release_version(self):
+        # (2026-11-24) 1.2.0 shipped iOS/Duo apps saying 1.1.5: the profiles' ios_app --version must equal --release-version
+        ios, duo = self.app_profile('ios.json', '1.3.0'), self.app_profile('duo.json', '1.3.0', '1.3.0')
+        release = self.make(targets={'ios': ios, 'duo': duo}, release_version='1.3.0')
+        self.assertEqual(release['profiles'], {'ios': ios, 'duo': duo})
+        self.out.unlink()
+        cases = [({'ios': ios}, None, 'needs --release-version'),
+                 ({'ios': ios}, '1.3', 'not the release\'s 1.3'),
+                 ({'duo': self.app_profile('old.json', '1.1.5')}, '1.3.0', 'version 1.1.5, not the release\'s 1.3.0'),
+                 ({'duo': self.app_profile('mixed.json', '1.3.0', '1.2.0')}, '1.3.0', 'version 1.2.0, 1.3.0, not'),
+                 ({'ios': self.app_profile('none.json')}, '1.3.0', 'gives its app no --version'),
+                 ({'ios': ios}, '1.3.0-beta', 'must be numeric'),
+                 ({'ios': 'profile/profile.json'}, '1.3.0', 'gives its app no --version')]
+        for targets, version, message in cases:
+            with self.subTest(targets=targets, version=version):
+                with self.assertRaisesRegex(ValueError, message):
+                    self.make(targets=targets, release_version=version)
+                self.assertFalse(self.out.exists())
+        self.make(targets={'thor': 'profile/profile.json'})          # Android targets need no app version here
+        self.assertTrue(self.out.exists())
 
     def test_programs_by_mode_here_and_by_suffix_in_a_windows_package(self):
         here = {r['path'] for r in self.make()['files'] if r.get('executable')}

@@ -11,8 +11,8 @@ Where the files come from: this repository's own object store. The history betwe
 trees but kept most file contents. `SOURCES.json` names, per file, the commit whose tree holds it and its blob.
 
 - `inline_shader_translation.py`, `raw_shader_analysis.py`, `scalar_mul_const.py`, `unorm8_vertex_fetch.py`:
-  commit 78faa2105 (2026-09-10 09:03 UTC), 22 minutes after the header was written.
-- `pixel_sample_dataflow.py`, `vertex_arithmetic_dataflow.py`, `scalar_constant.py`: commit 8ac3931f2 (18:10 UTC the
+  commit 78faa2105 (2026-09-10 05:03 -0400), 22 minutes after the header was written.
+- `pixel_sample_dataflow.py`, `vertex_arithmetic_dataflow.py`, `scalar_constant.py`: commit 8ac3931f2 (14:10 the
   same day). The revisions of the first two in commit 78faa2105 are no longer in the object store, and that commit
   had no `scalar_constant.py`. So this folder is a reconstruction, not a checkout of one commit. What makes it the
   right one is the result: all eight modules of the header, equal to the last byte.

@@ -8,6 +8,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -170,6 +171,60 @@ class Package(unittest.TestCase):
             target = archive_reaching(260)
             b.fetch(self.release, self.cache, True, self.archive); self.assertTrue(target.is_dir())
 
+    def ended_pid(self):
+        return int(subprocess.run([sys.executable, '-c', 'import os; print(os.getpid())'], capture_output=True, text=True).stdout)
+
+    def fetch_with_lock(self, cache, content, age=0):
+        """fetch into a new cache that holds a .fetch-lock with this content, written `age` seconds ago: (output, lock)"""
+        self.cache = cache; cache.mkdir(parents=True, exist_ok=True)
+        lock = cache / '.fetch-lock'; lock.write_text(content)
+        if age:
+            os.utime(lock, (lock.stat().st_mtime - age,) * 2)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            b.fetch(self.release, cache, True, self.archive)
+        return out.getvalue(), lock
+
+    def test_12c_a_stale_fetch_lock_goes_with_its_fetch_s_unfinished_staging(self):
+        # 2026-11-24 (Discord #help-thor, 1.2.x Windows builder): an interrupted fetch left %LOCALAPPDATA%\own-disc-builder\.fetch-lock
+        # and every later fetch refused, in the window and the console. A lock whose fetch has ended goes, with a note.
+        gone = self.ended_pid()
+        cache = self.root / 'cache-stale'; cache.mkdir()
+        own, partial, done = (cache / n for n in ('f-0000000a', 'f-0000000b', 'f-0000000c'))
+        for d in (own, partial, done):
+            d.mkdir()
+        shutil.copyfile(self.archive, own / 'download.zip')                 # the stale fetch's own folder (named in its lock)
+        (partial / 'download.zip').write_bytes(b'cut short')                # another fetch's download, interrupted
+        shutil.copyfile(self.archive, done / 'download.zip')                # a complete earlier download: evidence, kept
+        node = b.platform.node()
+        said, lock = self.fetch_with_lock(cache, json.dumps({'pid': gone, 'started': 1.0, 'host': node, 'staged': own.name}))
+        self.assertIn(f'Removed a stale fetch lock (process {gone}, the fetch that wrote it, has ended): {lock}', said)
+        self.assertEqual((own.exists(), partial.exists(), (done / 'download.zip').is_file(), lock.exists()), (False, False, True, False))
+        b.existing_ndk(cache, self.ndk)
+        # a 1.2.x lock (the bare process id): stale when that process has ended, or when its id now belongs to a program
+        # started after the lock was written; an empty lock older than a minute names no live fetch
+        for name, content, age in (('ended', str(gone), 0), ('reused', str(os.getpid()), 10 ** 6), ('empty', '', 120)):
+            with self.subTest(name):
+                said, lock = self.fetch_with_lock(self.root / f'cache-{name}', content, age)
+                self.assertIn(f'Removed a stale fetch lock (', said)
+                self.assertFalse(lock.exists())
+                b.existing_ndk(self.cache, self.ndk)
+
+    def test_12d_a_fetch_lock_that_may_still_be_owned_is_refused_with_the_file_to_delete(self):
+        me, node = os.getpid(), b.platform.node()
+        for name, content, age in (
+                ('running fetch', json.dumps({'pid': me, 'started': b.process_start(me), 'host': node, 'staged': 'f-0000000d'}), 0),
+                ('another computer', json.dumps({'pid': self.ended_pid(), 'started': 1.0, 'host': node + '-other', 'staged': None}), 0),
+                ('1.2.x running fetch', str(me), 0),
+                ('just created', '', 0)):
+            with self.subTest(name):
+                cache = self.root / f'cache-{name.replace(" ", "-")}'
+                with self.assertRaisesRegex(b.Refusal, 'another fetch owns the cache.*delete this file, then run fetch again: '
+                                            + re.escape(str(cache / '.fetch-lock'))):
+                    self.fetch_with_lock(cache, content, age)
+                self.assertTrue((cache / '.fetch-lock').exists())
+                self.assertFalse((cache / self.ndk['sha256'][:16]).exists())
+
     def test_13_release_payload_hash(self):
         profile = self.root / 'profile.json'; profile.write_bytes(b'{}')
         release = dict(schema='builder-release/1', host=b.host_id(), profile='profile.json',
@@ -305,101 +360,19 @@ class Package(unittest.TestCase):
         with self.assertRaisesRegex(b.Refusal, 'replaces bin/other.txt, which the compiler archive does not have'):
             b.fetch_compiler_overlay(loaded, root, self.cache)
 
-    def test_13g_linux_x86_64_takes_its_release_and_arm_linux_is_refused(self):
-        # 2026-11-11 (players: "a builder for Linux"): Google's Linux NDK is x86_64 only. An x86_64 PC loads the linux-x86_64
-        # release; an ARM64 Linux computer gets the reason, not a bare "wrong release", and no linux-arm64 release without native
-        # compiler programs is taken.
-        profile = self.root / 'profile.json'; profile.write_bytes(b'{}')
-        path = self.root / 'release.json'
-        def release(host):
-            path.write_text(json.dumps(dict(schema='builder-release/1', host=host, profile='profile.json',
-                                            files=[dict(path='profile.json', sha256=db.sha256_file(profile))])))
-            return path
-        with self.host('linux', 'linux-x86_64', 'x86_64'):
-            self.assertEqual(b.host_id(), 'linux-x86_64')
-            b.load_release(release('linux-x86_64'))
-            with self.assertRaisesRegex(b.Refusal, 'wrong or missing release for linux-x86_64'): b.load_release(release('win32-x86_64'))
-        with self.host('linux', 'linux-aarch64', 'aarch64'):
-            for host in ('linux-x86_64', 'linux-arm64'):
-                with self.subTest(host=host), self.assertRaisesRegex(b.Refusal, "Linux on ARM .aarch64. can't build a bit-identical release"):
-                    b.load_release(release(host))
-
-    def test_13h_an_x86_64_python_on_an_arm_linux_kernel_is_refused_at_check(self):
-        # qemu-user / Rosetta in a Linux VM: the interpreter says x86_64, the kernel's /proc/cpuinfo says ARM.
-        arm = self.root / 'cpuinfo-arm'; arm.write_text('processor\t: 0\nBogoMIPS\t: 48.00\nFeatures\t: fp asimd\nCPU implementer\t: 0x61\n')
-        x86 = self.root / 'cpuinfo-x86'; x86.write_text('processor\t: 0\nvendor_id\t: GenuineIntel\nflags\t\t: fpu sse2 avx2\n')
-        self.assertEqual([b.linux_kernel_is_arm(p) for p in (arm, x86, self.root / 'no-cpuinfo')], [True, False, False])
-        profile = self.root / 'profile.json'; profile.write_bytes(b'{}')
-        release = self.root / 'release.json'
-        release.write_text(json.dumps(dict(schema='builder-release/1', host='linux-x86_64', profile='profile.json',
-                                           files=[dict(path='profile.json', sha256=db.sha256_file(profile))])))
-        argv = ['--release', str(release), '--cache', str(self.cache), 'check', '--work', str(self.root / 'work')]
-        def run(cpuinfo):
-            real = b.linux_kernel_is_arm
-            with self.host('linux', 'linux-x86_64', 'x86_64'), mock.patch.object(b, 'linux_kernel_is_arm', lambda: real(cpuinfo)), \
-                    contextlib.redirect_stdout(io.StringIO()) as out:
-                code = b.main(argv)
-            return code, out.getvalue()
-        code, out = run(arm)
-        self.assertNotEqual(code, 0); self.assertIn("Linux on ARM (aarch64) can't build a bit-identical release", out)
-        self.assertFalse((self.root / 'work').exists()); self.assertFalse(self.cache.exists())
-        code, out = run(x86)
-        self.assertNotIn('Linux on ARM', out); self.assertIn('disk requirement unmeasured', out)     # the next guard
-
-    def test_13i_linux_players_cache_and_how_to(self):
-        # The cache follows the XDG rule on Linux only; the how-to names ./builder and a terminal on Linux, as before elsewhere.
-        home = str(Path.home() / '.cache' / 'own-disc-builder')
-        for plat, env, want in (('linux', {'XDG_CACHE_HOME': '/xdg'}, '/xdg/own-disc-builder'),
-                                ('linux', {'XDG_CACHE_HOME': 'relative'}, home), ('linux', {}, home),
-                                ('darwin', {'XDG_CACHE_HOME': '/xdg'}, home), ('win32', {'LOCALAPPDATA': '/lad', 'XDG_CACHE_HOME': '/xdg'}, '/lad/own-disc-builder')):
-            clean = {k: v for k, v in os.environ.items() if k not in ('XDG_CACHE_HOME', 'LOCALAPPDATA')}
-            with self.subTest(plat=plat, env=env), mock.patch.object(b.sys, 'platform', plat), mock.patch.dict(os.environ, dict(clean, **env), clear=True):
-                self.assertEqual(str(b.default_cache()), str(Path(want)))
-        fx, release = self.packaged()
-        for plat, said, unsaid in (('linux', ('Open a terminal in this folder', '  1. ./builder fetch', '  2. ./builder build', '  3. ./builder verify'), 'command prompt'),
-                                   ('win32', ('Open a command prompt in this folder', '  1. builder fetch', '  3. builder verify'), './builder'),
-                                   ('darwin', ('Open a command prompt in this folder', '  1. builder fetch'), './builder')):
-            with self.subTest(plat=plat), mock.patch.object(b.sys, 'platform', plat):
-                text = b.how_to(release)
-            for part in said:
-                self.assertIn(part, text)
-            self.assertNotIn(unsaid, text)
-
-    def test_13j_the_linux_launcher_runs_the_front_end_with_the_package_s_folders(self):
-        # tools/own_disc/linux/builder: the package root, its host programs (the profiles' ${hosttools}), UTF-8 mode, no user
-        # site packages, the 3.9 shim, every word passed on; and a clear refusal without a usable python3.
-        package = self.root / 'pkg'; (package / 'tools' / 'own_disc').mkdir(parents=True)
-        launcher = package / 'builder'; shutil.copy2(SRC / 'tools/own_disc/linux/builder', launcher)
-        fake = self.root / 'fake-python'
-        fake.write_text('#!/bin/sh\n[ "$1" = -c ] && exit 0\nshift\necho "SCRIPT=$1"; shift\necho "ARGS=$*"\n'
-                        'for v in BUILDER_PACKAGE_ROOT BUILDER_HOST_TOOLS PYTHONPATH PYTHONUTF8 PYTHONNOUSERSITE PYTHONHOME; do eval "echo $v=\\${$v-unset}"; done\n')
-        fake.chmod(0o755)
-        env = dict(os.environ, BUILDER_PYTHON=str(fake), PYTHONHOME='/elsewhere')
-        done = subprocess.run(['/bin/sh', str(launcher), 'build', '--play-disc', 'a b.iso'], env=env, capture_output=True, text=True)
-        self.assertEqual(done.returncode, 0, done.stderr)
-        real = package.resolve()
-        self.assertEqual(dict(line.split('=', 1) for line in done.stdout.splitlines()),
-                         {'SCRIPT': f'{real}/tools/own_disc/builder.py', 'ARGS': 'build --play-disc a b.iso',
-                          'BUILDER_PACKAGE_ROOT': str(real), 'BUILDER_HOST_TOOLS': f'{real}/host-tools',
-                          'PYTHONPATH': f'{real}/tools/own_disc/macos/python-compat', 'PYTHONUTF8': '1', 'PYTHONNOUSERSITE': '1',
-                          'PYTHONHOME': 'unset'})
-        old = self.root / 'old-python'                       # a python3 older than 3.9: the launcher's own version test, run as 3.8
-        old.write_text(f'#!/bin/sh\n[ "$1" = -c ] && exec "{sys.executable}" -c "import sys; sys.version_info = (3, 8, 0)\n$2"\nexit 0\n')
-        old.chmod(0o755)
-        done = subprocess.run(['/bin/sh', str(launcher)], env=dict(env, BUILDER_PYTHON=str(old)), capture_output=True, text=True)
-        self.assertEqual(done.returncode, 2); self.assertIn('REFUSED: the builder needs Python 3.9 or newer', done.stderr)
-
     def test_14_windows_path_refusal(self):
         with mock.patch.object(b.sys, 'platform', 'win32'):
             with self.assertRaisesRegex(b.Refusal, '80 characters'):
                 b.check_paths(self.root / ('a' * 90), self.cache)
 
-    def make_release(self):
+    def make_release(self, change=None):
         fx = fixture.Fixture(self.root / 'fixture')
         # Folder is created by the caller; copy-source is supplied to synthetic fixture only.
         for stage in fx.profile['stages']:
             if stage['adapter'] == 'command': stage['argv'][0] = '${python}'
         fx.stage('shaders')['source'] = '${repo}/pack.bin'
+        if change:
+            change(fx)
         fx.profile_path.write_text(json.dumps(fx.profile))
         shutil.copyfile(fx.profile_path, fx.side / 'profile.json')
         self.release.update(schema='builder-release/1', host=b.host_id(), profile='profile.json',
@@ -425,6 +398,40 @@ class Package(unittest.TestCase):
             self.assertEqual(b.main(argv), 0, out.getvalue())
         self.assertEqual(fx.executed(), ['decode', 'codegen', 'link', 'decode'])
         self.assertEqual(db.verify_bundle(fx.bundle())['_seal'], seal)
+
+    def test_15b_frontend_passes_the_players_title_update_to_the_engine(self):
+        # A release for the game with a title update: build forwards --title-update; without it the engine refuses the run.
+        self.fetch(); (self.root / 'fixture').mkdir()
+        update = self.root / 'update'; update.mkdir(); (update / 'default.xexp').write_bytes(b'patch bytes')
+        def with_update(fx):
+            game = fx.profile['games'][0]
+            game['title_update'] = {'label': 'Fake update 2', 'executable_sha256': game['executable_sha256'],
+                                    'executable_size': game['executable_size'],
+                                    'files': [{'path': 'default.xexp', 'size': 11, 'sha256': db.sha256_file(update / 'default.xexp')}]}
+        fx, release = self.make_release(with_update)
+        argv = ['--release', str(release), '--cache', str(self.cache), 'build', '--work', str(fx.work), '--play-disc', str(fx.disc)]
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(b.main(argv), db.EXIT_USAGE, out.getvalue())
+            self.assertIn('give your own title-update file', out.getvalue())
+            self.assertEqual(b.main(argv + ['--title-update', str(update)]), 0, out.getvalue())
+            self.assertIn('Title update: Fake update 2', out.getvalue())
+
+    def test_15c_frontend_passes_the_players_dlc_packs_to_the_engine(self):
+        # A release whose game takes DLC: build forwards every --dlc (a folder, a single pack) and the bundle carries the packs.
+        self.fetch(); (self.root / 'fixture').mkdir()
+        mine = self.root / 'my dlc'; mine.mkdir(); single = self.root / 'one more'; single.mkdir()
+        fixture.stfs_package(mine / 'ABC123', content_type=2, metadata_version=2)
+        fixture.stfs_package(single / 'def456', content_type=2, metadata_version=2)
+        def with_dlc(fx):
+            fixture.BundleFormat2.second(None, fx)
+            fx.profile['games'][0]['dlc'] = {'title_id': '12345678'}          # the synthetic packs' title
+        fx, release = self.make_release(with_dlc)
+        argv = ['--release', str(release), '--cache', str(self.cache), 'build', '--work', str(fx.work), '--play-disc', str(fx.disc),
+                '--dlc', str(mine), '--dlc', str(single / 'def456')]
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(b.main(argv), 0, out.getvalue())
+        names = [c['name'] for c in db.verify_bundle(fx.bundle())['components'] if c['role'] == 'dlc-package']
+        self.assertEqual(names, ['dlc/abc123', 'dlc/def456'])
 
     def test_16_case_ambiguity_refused(self):
         folder = db.FolderDisc(self.root)
@@ -1043,6 +1050,61 @@ class Package(unittest.TestCase):
         with self.assertRaisesRegex(b.Refusal, 'target profile is not hash-bound'):
             b.load_release(release)
 
+    def test_50b_the_players_app_icon_reaches_each_targets_build(self):
+        # Owner 2026-11-22: build --app-icon names the logo the player picked. An iOS or Duo profile takes it as ${appicon} (its
+        # app_icons choices, pinned by hash); a bundle names "<edition>-<colourway>" in its manifest. No pick: the profile's
+        # default icon and no manifest key. The decode stage hashes its inputs, so its output shows which icon file it was given.
+        icons = {c: f'icon {c}'.encode() for c in db.APP_ICON_COLOURWAYS}
+        def single_screen(fx):
+            (fx.side / 'edition.txt').write_text('fold\n')
+            (fx.side / 'icons').mkdir()
+            for c, data in icons.items():
+                (fx.side / 'icons' / f'{c}.png').write_bytes(data)
+        fx, release = self.packaged(single_screen)
+        apple = json.loads(fx.profile_path.read_text())
+        apple['app_icons'] = {'default': 'pink-blue-dusk', 'choices': {c: {'path': f'${{repo}}/icons/{c}.png', 'sha256': hashlib.sha256(d).hexdigest()}
+                                                                       for c, d in icons.items()}}
+        decode = apple['stages'][[s['id'] for s in apple['stages']].index('decode')]
+        decode['inputs']['icon'] = '${appicon}'
+        decode['argv'].append('${appicon}')
+        (fx.side / 'profile-apple.json').write_text(json.dumps(apple))
+        self.release.update(profiles={'ios': 'profile-apple.json', 'duo': 'profile-apple.json'},
+                            files=[dict(path=p.relative_to(fx.side).as_posix(), sha256=db.sha256_file(p)) for p in fx.side.rglob('*')
+                                   if p.is_file() and p.name != 'release.json'])
+        release.write_text(json.dumps(self.release))
+        base = ['--release', str(release), '--cache', str(self.cache), 'build', '--work', str(fx.work), '--play-disc', str(fx.disc)]
+
+        def build(*extra):
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                code = b.main(base + list(extra))
+            return code, out.getvalue()
+
+        def decoded_with(icon):
+            return hashlib.sha256(b'decode' + fixture.XEX + icon).hexdigest() + ' decode'
+
+        for target in ('ios', 'duo'):
+            for colourway in db.APP_ICON_COLOURWAYS:
+                with self.subTest(target=target, colourway=colourway):
+                    code, text = build('--' + target, '--bundle-id', 'com.example.x', '--app-icon', colourway)
+                    self.assertEqual(code, 0, text)
+                    self.assertEqual((fx.work / 'decode/image.bin').read_text(), decoded_with(icons[colourway]))
+                    self.assertEqual(db.verify_bundle(fx.bundle())['app_icon'], f'{target}-{colourway}')
+        code, text = build('--ios', '--bundle-id', 'com.example.x')                           # no pick: the profile's default
+        self.assertEqual(code, 0, text)
+        self.assertEqual((fx.work / 'decode/image.bin').read_text(), decoded_with(icons['pink-blue-dusk']))
+        self.assertNotIn('app_icon', db.verify_bundle(fx.bundle()))
+        code, text = build('--app-icon', 'peach-rose')                                         # the package's own edition
+        self.assertEqual(code, 0, text)
+        self.assertEqual(db.verify_bundle(fx.bundle())['app_icon'], 'android-peach-rose')
+        code, text = build('--app-icon', 'peach-rose', '--edition', 'thor')                    # the window names the twin
+        self.assertEqual(code, 0, text)
+        self.assertEqual(db.verify_bundle(fx.bundle())['app_icon'], 'thor-peach-rose')
+        code, text = build('--ios', '--bundle-id', 'com.example.x', '--app-icon', 'peach-rose', '--edition', 'thor')
+        self.assertEqual(code, 2, text)
+        self.assertIn('does not match the build target --ios', text)
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):     # a colourway the apps do not carry
+            build('--app-icon', 'sunrise')
+
     def test_52_a_player_keeps_one_generated_bundle_id_per_target(self):
         one, two = self.root / 'one' / 'work', self.root / 'two' / 'work'
         first = b.bundle_id_for('ios', one)
@@ -1086,6 +1148,34 @@ class Package(unittest.TestCase):
                                    'ndk': dict(self.ndk), 'estimates': {'min_free_bytes': 16 << 30}}))
         text = b.how_to(rel)
         self.assertIn('./builder build --thor', text); self.assertIn('./builder build --fold', text); self.assertIn('./builder build --ios', text)
+
+    def test_54b_a_build_with_the_players_title_update_uses_the_title_update_profile(self):
+        # owner via lead 2026-11-24: one builder makes the 1.0 bundle, or the title update's when the player gives one
+        fx, release = self.packaged()
+        shutil.copyfile(fx.side / 'profile.json', fx.side / 'profile-tu.json')
+        self.release.update(title_update_profiles={'default': 'profile-tu.json'},
+                            files=[dict(path=p.relative_to(fx.side).as_posix(), sha256=db.sha256_file(p)) for p in fx.side.rglob('*')
+                                   if p.is_file() and p.name != 'release.json'])
+        release.write_text(json.dumps(self.release))
+        loaded = b.load_release(release)[0]
+        self.assertEqual((b.profile_of(loaded, None), b.profile_of(loaded, None, True)), (self.release['profile'], 'profile-tu.json'))
+        loaded_without = dict(loaded, title_update_profiles={})
+        self.assertEqual(b.profile_of(loaded_without, None, True), self.release['profile'], 'no title-update profile: the own one (test_15b)')
+        update = fx.side.parent / 'tu00000009_00000000'
+        update.write_bytes(b'package')
+        for given, want in ((['--title-update', str(update)], 'profile-tu.json'), ([], self.release['profile'])):
+            seen = []
+            with self.subTest(given=bool(given)), mock.patch.object(b.db, 'main', side_effect=lambda argv: seen.append(argv) or 0), \
+                    contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(b.main(['--release', str(release), '--cache', str(self.cache), 'build', '--work', str(fx.work),
+                                         '--play-disc', str(fx.disc)] + given), 0, out.getvalue())
+                command = seen[0]
+                self.assertEqual(Path(command[command.index('--profile') + 1]).name, want)
+                self.assertEqual('--title-update' in command, bool(given))
+        self.release['title_update_profiles'] = {'default': 'not-listed.json'}
+        release.write_text(json.dumps(self.release))
+        with self.assertRaisesRegex(b.Refusal, 'title-update profile is not hash-bound'):
+            b.load_release(release)
 
     def test_55_an_ios_release_without_android_packs_names_the_windows_builder(self):
         fx, release = self.packaged()
@@ -1173,10 +1263,12 @@ class Package(unittest.TestCase):
         fx, release = self.packaged()
         install = self.root / 'install disc'; install.mkdir()
         inside_repo = REPO / 'tools' / 'not-a-private-folder'                # an output folder in a checkout is refused, then asked again
-        code, said, prompts = self.guided_run(release, [f'"{fx.disc}"', str(install), str(inside_repo), ''])
+        code, said, prompts = self.guided_run(release, [f'"{fx.disc}"', str(install), str(inside_repo), '', '9', '3'])
         self.assertEqual(code, 0, said)
         bundle = fx.side / 'local-analysis' / 'builder' / 'work' / 'out' / 'code-fixture-generic.bundle'
         self.assertTrue(bundle.is_file(), said)
+        self.assertEqual(sum('Pink/Blue Dusk' in p for p in prompts), 2)        # an answer that is no choice is asked again
+        self.assertEqual(db.verify_bundle(bundle)['app_icon'], 'android-peach-rose')   # the pick, for this package's app
         self.assertIn('REFUSED', said.split('Step 1')[0])                   # the repo folder, before any step ran
         self.assertFalse(inside_repo.exists())
         steps = [line for line in said.splitlines() if line.startswith('=== Step')]
@@ -1199,13 +1291,13 @@ class Package(unittest.TestCase):
             self.assertIsNone(b.dropped_disc(words), words)                   # commands and anything else stay the command line
         os.chdir(cwd)
         # the install disc dropped: only the play disc is asked for; the window waits at the end (the launcher does not)
-        code, said, prompts = self.guided_run(release, [str(fx.disc), '', ''], dropped=install, wait_at_end=True)
+        code, said, prompts = self.guided_run(release, [str(fx.disc), '', '', ''], dropped=install, wait_at_end=True)
         self.assertEqual(code, 0, said)
         self.assertIn(f'Disc 1 (Install): {install}', said)
         self.assertFalse(any('Disc 1 (Install)' in p for p in prompts), prompts)
         self.assertIn('Press Enter to close this window', prompts[-1])
         # the play disc typed where the install disc is asked for: taken as the play disc, then the install disc asked
-        code, said, prompts = self.guided_run(release, [str(install), str(fx.disc), ''])
+        code, said, prompts = self.guided_run(release, [str(install), str(fx.disc), '', ''])
         self.assertEqual(code, 0, said)
         self.assertIn('That is Disc 1 (Install): taken as Disc 1 (Install)', said)
         games = fx.profile['games']
@@ -1213,7 +1305,7 @@ class Package(unittest.TestCase):
         # an install disc with an executable of its own (the real Disc 1 has one, 2026-11-07 PC run) is still the install disc
         other = self.root / 'install with exe'; other.mkdir(); (other / 'default.xex').write_bytes(b'not the game executable')
         self.assertEqual(b.disc_role(other, games), 'install')
-        code, said, prompts = self.guided_run(release, [str(fx.disc), str(other), ''])
+        code, said, prompts = self.guided_run(release, [str(fx.disc), str(other), '', ''])
         self.assertEqual(code, 0, said)
         self.assertNotIn('looks like', said)
 
@@ -1221,7 +1313,7 @@ class Package(unittest.TestCase):
         fx, release = self.packaged()
         install = self.root / 'install disc'; install.mkdir()
         empty = self.root / 'fresh cache'
-        code, said, prompts = self.guided_run(release, [str(fx.disc), str(install), '', 'n'], cache=empty)
+        code, said, prompts = self.guided_run(release, [str(fx.disc), str(install), '', '', 'n'], cache=empty)
         self.assertEqual(code, 1, said)
         self.assertIn(self.ndk['license_url'], said)
         self.assertIn('(y/n)', prompts[-1])
@@ -1231,7 +1323,7 @@ class Package(unittest.TestCase):
         # yes: the fetch step runs first, with the switches a player would type (captured here: no download in a test)
         ran = []
         with mock.patch.object(b, 'main', side_effect=lambda argv: ran.append(argv) or 1):
-            code, said, _ = self.guided_run(release, [str(fx.disc), str(install), '', 'y'], cache=empty)
+            code, said, _ = self.guided_run(release, [str(fx.disc), str(install), '', '', 'y'], cache=empty)
         self.assertEqual(code, 1)
         self.assertIn('=== Step 1 of 4: Fetching the compilers ===', said)
         self.assertEqual(ran, [['--release', str(release), '--cache', str(empty), 'fetch', '--accept-ndk-license']])

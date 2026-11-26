@@ -2,15 +2,25 @@
 """disc_builder.py: desktop builder, "disc images in, code bundle out".
 
   disc_builder.py build   --profile P.json --play-disc ISO_OR_FOLDER --work DIR [--install-disc ISO_OR_FOLDER]
-                          [--dry-run] [--allow-heavy] [--stop-after STAGE] [--supply STAGE=PATH] [--report OUT.json]
-                          [--out DIR]
-  disc_builder.py identify --profile P.json --play-disc ISO_OR_FOLDER
+                          [--title-update FILE_OR_FOLDER] [--dlc FILE_OR_FOLDER ...] [--dry-run] [--allow-heavy]
+                          [--stop-after STAGE] [--supply STAGE=PATH] [--report OUT.json] [--out DIR]
+  disc_builder.py identify --profile P.json --play-disc ISO_OR_FOLDER [--title-update FILE_OR_FOLDER]
   disc_builder.py verify  BUNDLE [--executable-sha256 HEX]
 
 What it does, in this order:
   1. Identify. Reads the game executable (default.xex) out of the play disc (an XISO image, or an extracted folder),
      hashes it (SHA-256) and looks the hash up in the profile's "games" table. An unknown executable is refused
-     (exit 4) before anything else happens.
+     (exit 4) before anything else happens. A game entry with a "title_update" is the game with that title update:
+     the player gives their own title-update file (--title-update: the package their console downloaded, read by
+     title_update.py beside this file, or a folder holding its files), every file the entry lists is checked by size
+     and SHA-256 (another update is refused, exit 4), and the stages read its files as the disc named "update".
+     The bundle then names the executable the entry's title_update.executable_sha256 gives (the patched one, which a
+     stage makes and the bundle carries as its title-xex), with the play disc's own as base_executable_sha256.
+     A game entry with "dlc": {"title_id": HEX8} takes the player's own DLC packs (--dlc, each a pack file as it came
+     off the console or a folder of them): every pack is read through, its every block checked against its hash
+     tree and its title the game's, before any stage runs (a pack that is not, exit 4). The format-2 bundle carries
+     each as it is (role dlc-package, dlc/<its name in lower case>). A profile names the title update's data archive
+     as a component of role title-update-data (update/update.rpf). The app installs both where the game reads them.
   2. Plan. Every path and every ${...} variable of the profile is resolved, the stage named by --stop-after and the
      bundle description are checked. A mistake stops the run here (exit 64), not after some stages have run.
   3. Prerequisites. Every tool file of every stage, every "prerequisites" entry of the profile (files, optionally
@@ -49,6 +59,7 @@ heavy stage, 4 the executable is not a supported game, 5 a bundle does not verif
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import os
@@ -79,11 +90,32 @@ BUNDLE_SCHEMA_2 = 'gta5-code-bundle/2'
 RUNTIME_ROLE = 'runtime-data'
 RUNTIME_PREFIX = 'runtime/'
 # Format 2, 1.2.0 (LEDGER 1b): the launcher's own files made from the player's discs (the ui stage: fonts, glyphs, pictures,
-# menu sounds). The app reads them in place from the imported bundle; it accepts a name under ui/ of a kind it reads
-# (.ttf, .png, .txt directly in ui/; .wav directly in ui/sounds/) up to 16 MiB, and so does this builder.
+# menu sounds; next update: the launcher music). The app reads them in place from the imported bundle; it accepts a name under
+# ui/ of a kind it reads (.ttf, .png, .txt directly in ui/; .wav directly in ui/sounds/ or ui/music/) up to 16 MiB, and so does
+# this builder.
 UI_ROLE = 'ui-asset'
 UI_PREFIX = 'ui/'
 UI_MAX_BYTES = 16 << 20
+# Next update (owner 2026-11-22, LEDGER "app icon follows the builder's logo choice"): the app icon the player chose in the
+# builder (a colourway of the owner's logos: the builder window's backdrop) is named in the manifest as one text,
+# "app_icon": "<edition>-<colourway>", the key the Android app reads on import to show the matching launcher icon. The edition
+# is the app's word in the logo files' names (the single-screen Android app is "android"). The front end names the choice in
+# BUILDER_APP_ICON and the edition in BUILDER_APP_EDITION (builder build --app-icon). With no choice the key is left out, and
+# the bundle is byte for byte the file of a build without it.
+APP_ICON_KEY = 'app_icon'
+APP_ICON_COLOURWAYS = ('golden-sunset', 'peach-rose', 'pink-blue-dusk')
+APP_ICON_EDITIONS = ('thor', 'android', 'ios', 'duo')
+# Next update (lead 2026-11-22: the builder takes the player's own title update and DLC): two more format-2 roles, which
+# the app installs where the TU line's runtime reads them. The title update's data archive (one, from a profile stage) and
+# the player's DLC packs, each the file as it came off the console (from --dlc, never from a stage).
+UPDATE_DATA_ROLE = 'title-update-data'
+UPDATE_DATA_NAME = 'update/update.rpf'
+DLC_ROLE = 'dlc-package'
+DLC_PREFIX = 'dlc/'
+DLC_FILE_NAME = re.compile(r'[A-Za-z0-9]{1,42}')    # a console's content file name (the app's DlcPacks.validName)
+DLC_ENTRY = re.compile(r'[a-z0-9]{1,42}')           # in the bundle: that name in lower case (entry names are lower case)
+DLC_MAX = 60                                        # the app's DlcPacks.MAXIMUM_PACKAGES
+DLC_RESERVE = 1 << 30                               # room kept for the rest of the bundle when the packs are checked
 ENGINE_KEY_VERSION = 3          # bump when the meaning of a stage key changes (2: tree digests skip TREE_IGNORED; 3: the engine's and the host helper's own hashes are part of every key, and a tree's files are ordered by their names with '/', the same on every host)
 BLOCK = 1 << 20
 PRIVATE_DIR = 'local-analysis'  # the git-ignored folder of a checkout; the only place in one the builder writes to
@@ -311,6 +343,103 @@ def open_disc(path: Path):
     raise BuilderError(f'disc not found: {path}', EXIT_USAGE)
 
 
+class _CheckedReader:
+    """A file inside a title-update package: a damaged or changed package stops the run as a builder error."""
+
+    def __init__(self, reader):
+        self.reader = reader
+
+    def read(self, size: int = -1) -> bytes:
+        try:
+            return self.reader.read(size)
+        except (OSError, ValueError, StopIteration) as e:
+            raise BuilderError(f'title update: {e or "the package ended early"} (is the file complete and unchanged?)',
+                               EXIT_GAME)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.reader.close()
+
+
+class TitleUpdateDisc:
+    """The player's title-update package (a LIVE STFS file read by title_update.py beside this file) as a disc."""
+
+    def __init__(self, path: Path):
+        import title_update                                  # (only a run with a title update needs the reader)
+        try:
+            self._disc = title_update.open_update(path)
+        except (OSError, ValueError) as e:
+            raise BuilderError(f'{path.name} is not a title-update package this build reads: {e}', EXIT_GAME)
+        self.kind, self.image, self.root = self._disc.kind, path, path
+
+    def size(self, rel: str) -> int | None:
+        try:
+            return self._disc.size(rel)
+        except ValueError as e:
+            raise BuilderError(str(e), EXIT_USAGE)
+
+    def open(self, rel: str):
+        try:
+            reader, size = self._disc.open(rel)
+        except (OSError, ValueError) as e:
+            raise BuilderError(f'title update: {e}')
+        return _CheckedReader(reader), size
+
+
+def open_update(path: Path):
+    """--title-update: the package file itself, or a folder holding the files it contains (read as a disc folder)."""
+    if path.is_dir():
+        return FolderDisc(path)
+    if path.is_file():
+        return TitleUpdateDisc(path)
+    raise BuilderError(f'title update not found: {path}', EXIT_USAGE)
+
+
+def collect_dlc(paths: list, game: dict, bundle_format) -> list[tuple[str, Path]]:
+    """--dlc: the player's own DLC packs, each a file or a folder of them (in a folder only files named as a console names
+    content count; others, such as an index text, are passed over). Every pack is read through and checked (title_update.
+    check_dlc) before any stage runs. Returns [(name in the bundle, file)], by name."""
+    if not paths:
+        return []
+    if not game.get('dlc'):
+        raise BuilderError('This build takes no DLC packs: leave them out (--dlc).', EXIT_USAGE)
+    if bundle_format != 2:
+        raise BuilderError('profile: DLC packs travel only in a format-2 code bundle', EXIT_USAGE)
+    found = {}
+    for given in map(Path, paths):
+        if given.is_dir():
+            files = sorted(p for p in given.iterdir() if DLC_FILE_NAME.fullmatch(p.name) and p.is_file() and not p.is_symlink())
+            if not files:
+                raise BuilderError(f'{given} holds no DLC pack (a file named as the console names content)', EXIT_USAGE)
+        elif given.is_file() and not given.is_symlink():
+            if not DLC_FILE_NAME.fullmatch(given.name):
+                raise BuilderError(f'{given.name}: a DLC pack keeps the name the console gave it (letters and digits, at '
+                                   'most 42)', EXIT_USAGE)
+            files = [given]
+        else:
+            raise BuilderError(f'DLC not found: {given}', EXIT_USAGE)
+        for f in files:
+            key = f.name.lower()
+            if key in found and found[key].resolve() != f.resolve():
+                raise BuilderError(f'two DLC packs are named {f.name} (names are compared without regard to case)', EXIT_USAGE)
+            found[key] = f
+    if len(found) > DLC_MAX:
+        raise BuilderError(f'{len(found)} DLC packs; the app takes at most {DLC_MAX}', EXIT_USAGE)
+    total = sum(f.stat().st_size for f in found.values())
+    if total > ZIP_LIMIT - DLC_RESERVE:
+        raise BuilderError(f'the DLC packs hold {total} bytes; a bundle holds at most {ZIP_LIMIT} with the game code', EXIT_USAGE)
+    import title_update                                  # beside this file; only a build with DLC needs it
+    title = int(game['dlc']['title_id'], 16)
+    for key, f in sorted(found.items()):
+        try:
+            title_update.check_dlc(f, title)
+        except (ValueError, OSError) as e:
+            raise BuilderError(f'DLC pack {f.name} refused: {e}', EXIT_GAME)
+    return sorted(found.items())
+
+
 def disc_hash(disc, rel: str) -> tuple[str, int]:
     f, size = disc.open(rel)
     with f:
@@ -342,6 +471,19 @@ HEX64 = re.compile(r'[0-9a-f]{64}')
 ADAPTERS = ('disc-file', 'command', 'supplied')
 
 
+def title_update_spec_ok(spec) -> bool:
+    files = spec.get('files') if isinstance(spec, dict) else None
+    return isinstance(spec, dict) and isinstance(spec.get('label'), str) and bool(spec['label']) \
+        and bool(HEX64.fullmatch(str(spec.get('executable_sha256', '')))) and type(spec.get('executable_size')) is int \
+        and isinstance(files, list) and bool(files) \
+        and all(isinstance(f, dict) and isinstance(f.get('path'), str) and bool(f['path'])
+                and type(f.get('size')) is int and bool(HEX64.fullmatch(str(f.get('sha256', '')))) for f in files)
+
+
+def dlc_spec_ok(spec) -> bool:
+    return isinstance(spec, dict) and set(spec) == {'title_id'} and bool(re.fullmatch(r'[0-9A-F]{8}', str(spec['title_id'])))
+
+
 def load_profile(path: Path) -> dict:
     try:
         profile = json.loads(path.read_text(encoding='utf-8'))
@@ -369,8 +511,30 @@ def load_profile(path: Path) -> dict:
     for g in profile['games']:
         if not HEX64.fullmatch(str(g.get('executable_sha256', ''))):
             raise BuilderError('profile: every game needs executable_sha256 (64 hex digits)', EXIT_USAGE)
+        if 'title_update' in g and not title_update_spec_ok(g['title_update']):
+            raise BuilderError('profile: a game\'s title_update needs a label, executable_sha256 (64 hex digits), '
+                               'executable_size and files (each with path, size and sha256)', EXIT_USAGE)
+        if 'dlc' in g and not dlc_spec_ok(g['dlc']):
+            raise BuilderError('profile: a game\'s dlc is {"title_id": "<8 upper-case hex digits>"}', EXIT_USAGE)
+    if 'app_icons' in profile and not app_icons_ok(profile['app_icons']):
+        raise BuilderError('profile: app_icons needs "default" (one of its choices) and "choices": {id: {path, sha256}} '
+                           '(ids of a-z, 0-9 and -; sha256 of 64 hex digits)', EXIT_USAGE)
     profile['_dir'] = path.resolve().parent
     return profile
+
+
+APP_ICON_ID = re.compile(r'[a-z0-9]+(-[a-z0-9]+)*')
+
+
+def app_icons_ok(icons) -> bool:
+    """the profile's app icon choices (next update): the player's pick in the Mac builder (builder --app-icon, env
+    BUILDER_APP_ICON) names one; ${appicon} is its file, checked against its pinned SHA-256"""
+    if not isinstance(icons, dict) or set(icons) != {'default', 'choices'}:
+        return False
+    choices = icons['choices']
+    return (isinstance(choices, dict) and bool(choices) and icons['default'] in choices
+            and all(isinstance(k, str) and APP_ICON_ID.fullmatch(k) and isinstance(v, dict) and set(v) == {'path', 'sha256'}
+                    and isinstance(v['path'], str) and v['path'] and HEX64.fullmatch(str(v['sha256'])) for k, v in choices.items()))
 
 
 class Context:
@@ -415,6 +579,8 @@ class Context:
                     raise BuilderError('bundle id missing or malformed: give --bundle-id in reverse-DNS form '
                                        '(for example com.yourname.fivepocket)', EXIT_USAGE)
                 return value
+            if name == 'appicon':                           # the app icon the player picked (builder --app-icon), else the default
+                return self.app_icon()
             if name == 'hosttools':                         # this host's builds of the project's own tools
                 if not os.environ.get('BUILDER_HOST_TOOLS'):
                     raise BuilderError('host tools missing: BUILDER_HOST_TOOLS names no folder', EXIT_PREREQ)
@@ -429,10 +595,13 @@ class Context:
                 return str(self.profile.get('id', ''))
             if name == 'flavour':
                 return str(self.profile.get('flavour', ''))
-            if name.startswith('game:'):
-                if name[5:] not in self.game:
-                    raise BuilderError(f'profile: unknown game field in {m.group(0)}', EXIT_USAGE)
-                return str(self.game[name[5:]])
+            if name.startswith('game:'):                    # a field of the identified game; a.b reads field b of a
+                value = self.game
+                for part in name[5:].split('.'):
+                    if not isinstance(value, dict) or part not in value:
+                        raise BuilderError(f'profile: unknown game field in {m.group(0)}', EXIT_USAGE)
+                    value = value[part]
+                return str(value)
             if name.startswith('disc:'):                    # the image file (or folder) of a disc named on the command line
                 disc = self.discs.get(name[5:])
                 if disc is None:
@@ -445,6 +614,29 @@ class Context:
                 return str(self.outputs[stage][out])
             raise BuilderError(f'profile: unknown variable {m.group(0)}', EXIT_USAGE)
         return VAR.sub(sub, text)
+
+    def app_icon(self) -> str:
+        """${appicon}: the file of the icon choice in BUILDER_APP_ICON (the default when it is unset or empty), refused
+        when the profile has no choices, the choice is not one of them, or the file is not the pinned one"""
+        icons = self.profile.get('app_icons')
+        if not icons:
+            raise BuilderError('profile: ${appicon} needs app_icons', EXIT_USAGE)
+        pick = os.environ.get('BUILDER_APP_ICON', '') or icons['default']
+        if pick not in icons['choices']:
+            raise BuilderError(f'app icon {pick!r} is not one of this profile\'s: {", ".join(sorted(icons["choices"]))}', EXIT_USAGE)
+        choice = icons['choices'][pick]
+        path = Path(self.expand(choice['path']))
+        cache = self.__dict__.setdefault('_app_icon_checked', {})
+        if str(path) not in cache:
+            try:
+                got = sha256_file(path)
+            except OSError as e:
+                raise BuilderError(f'app icon {pick!r}: {e}', EXIT_PREREQ)
+            if got != choice['sha256']:
+                raise BuilderError(f'app icon {pick!r}: {path} is not the pinned file (sha256 {got[:12]}, '
+                                   f'expected {choice["sha256"][:12]})', EXIT_PREREQ)
+            cache[str(path)] = got
+        return str(path)
 
 
 XCODE_PARTS = {'xcode': '', 'iossdk': 'Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk',
@@ -544,8 +736,9 @@ def xex_details(path_or_bytes) -> str:
             sys.path.pop(0)
 
 
-def identify(profile: dict, play) -> dict:
-    """Returns the matching entry of the profile's games table plus the measured hash; refuses anything else."""
+def identify(profile: dict, play, update=None) -> dict:
+    """Returns the matching entry of the profile's games table plus the measured hash; refuses anything else. update is
+    the title-update disc given on the command line (or None)."""
     names = sorted({g.get('executable', 'default.xex') for g in profile['games']})
     seen = []
     for name in names:
@@ -553,10 +746,10 @@ def identify(profile: dict, play) -> dict:
             continue
         digest, size = disc_hash(play, name)
         seen.append((name, digest, size))
-        for g in profile['games']:
-            if g.get('executable', 'default.xex') == name and g['executable_sha256'] == digest and \
-                    g.get('executable_size', size) == size:
-                return dict(g, executable=name, executable_sha256=digest, executable_size=size)
+        matches = [g for g in profile['games'] if g.get('executable', 'default.xex') == name and
+                   g['executable_sha256'] == digest and g.get('executable_size', size) == size]
+        if matches:
+            return dict(pick_title_update(matches, update), executable=name, executable_sha256=digest, executable_size=size)
     if not seen:
         raise BuilderError(f'No game executable ({", ".join(names)}) on the play disc: is this the play disc of the '
                            f'game, and is the image complete?', EXIT_GAME)
@@ -569,6 +762,47 @@ def identify(profile: dict, play) -> dict:
     raise BuilderError('Unsupported game version: ' + (details + ', ' if details else '') +
                        f'executable hash {short(digest)} ({size} bytes). This build supports only: ' +
                        '; '.join(str(g.get('label', g.get('id', '?'))) for g in profile['games']) + '.', EXIT_GAME)
+
+
+def pick_title_update(games: list[dict], update) -> dict:
+    """Of the games entries that match the play disc's executable: the one for the title update given (or for none)."""
+    plain = [g for g in games if 'title_update' not in g]
+    updated = [g for g in games if 'title_update' in g]
+    labels = '; '.join(g['title_update']['label'] for g in updated)
+    if update is None:
+        if plain:
+            return plain[0]
+        raise BuilderError(f'This build is for the game with its title update ({labels}): give your own title-update '
+                           f'file too (--title-update).', EXIT_USAGE)
+    if not updated:
+        raise BuilderError('This build takes no title update: leave the title-update file out.', EXIT_USAGE)
+    first_problems: list[str] = []
+    for g in updated:
+        problems = []
+        for f in g['title_update']['files']:
+            size = update.size(f['path'])
+            if size is None:
+                problems.append(f'it holds no {f["path"]}')
+            elif size != f['size']:
+                problems.append(f'its {f["path"]} has {size} bytes, not {f["size"]}')
+            elif disc_hash(update, f['path'])[0] != f['sha256']:
+                problems.append(f'its {f["path"]} has another SHA-256')
+        if not problems:
+            return g
+        first_problems = first_problems or problems
+    raise BuilderError(f'Unsupported title update ({"; ".join(first_problems)}). This build supports only: {labels}.',
+                       EXIT_GAME)
+
+
+def bundle_game(game: dict) -> dict:
+    """The manifest's game: the executable the bundle runs. With a title update that is the patched executable (the
+    bundle's title-xex, made by a stage); the play disc's own executable is named beside it."""
+    tu = game.get('title_update')
+    if not tu:
+        return {'id': game.get('id', ''), 'executable_sha256': game['executable_sha256'],
+                'executable_size': game['executable_size']}
+    return {'id': game.get('id', ''), 'executable_sha256': tu['executable_sha256'], 'executable_size': tu['executable_size'],
+            'base_executable_sha256': game['executable_sha256']}
 
 
 def check_disc_files(game: dict, discs: dict, hash_files: bool) -> list[str]:
@@ -668,6 +902,8 @@ def stage_key_parts(stage: dict, ctx: Context, previous_key: str, supply: dict) 
     """Everything that decides whether a stage's old outputs are still valid. Raises if an input is missing."""
     parts = {'engine': ENGINE_KEY_VERSION, 'definition': hashlib.sha256(canonical(stage_definition(stage))).hexdigest(),
              'game': ctx.game['executable_sha256'], 'previous': previous_key, 'tools': {'builder-engine': hashlib.sha256(__loader__.get_data(__file__)).hexdigest(), 'host-support': hashlib.sha256(host_support.__loader__.get_data(host_support.__file__)).hexdigest()}, 'inputs': {}}
+    if ctx.game.get('title_update'):                       # (a build without one keeps the key parts it had)
+        parts['title_update'] = ctx.game['title_update']['executable_sha256']
     for raw in tool_paths(stage):
         parts['tools'][raw] = sha256_path(Path(ctx.expand(raw)))['sha256']
     for name, raw in sorted(stage.get('inputs', {}).items()):
@@ -898,6 +1134,20 @@ def _zipinfo(name: str) -> zipfile.ZipInfo:
     return info
 
 
+@contextlib.contextmanager
+def _plain_zip_up_to_4gib():
+    """Python's zipfile ends a ZIP without ZIP64 at 2 GiB: it keeps every size and offset below 2^31 for readers that take them
+    as signed. The ZIP format's fields are unsigned 32-bit and this bundle format reads them so, below 4 GiB (ZIP_LIMIT), so the
+    writer lets them reach that while it writes (2026-11-24: a title-update bundle with the player's DLC is 2.48 GB). A bundle
+    below 2 GiB is the same file as before."""
+    saved = zipfile.ZIP64_LIMIT
+    zipfile.ZIP64_LIMIT = ZIP_LIMIT
+    try:
+        yield
+    finally:
+        zipfile.ZIP64_LIMIT = saved
+
+
 def write_bundle(path: Path, manifest: dict, sources: dict[str, Path]) -> str:
     """Writes the bundle deterministically (same manifest + same component bytes = same file). Returns its seal."""
     names = [c['name'] for c in manifest['components']]
@@ -905,7 +1155,7 @@ def write_bundle(path: Path, manifest: dict, sources: dict[str, Path]) -> str:
         raise BuilderError('bundle: larger than 4 GiB is not supported by format 1', EXIT_USAGE)
     tmp = path.with_name(path.name + '.tmp')
     path.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(tmp, 'w', compression=zipfile.ZIP_STORED, allowZip64=False) as zf:
+    with _plain_zip_up_to_4gib(), zipfile.ZipFile(tmp, 'w', compression=zipfile.ZIP_STORED, allowZip64=False) as zf:
         zf.writestr(_zipinfo(MANIFEST_NAME), json.dumps(manifest, indent=1, sort_keys=True).encode() + b'\n')
         for name in sorted(names):
             with open(sources[name], 'rb') as src, zf.open(_zipinfo(name), 'w') as dst:
@@ -922,23 +1172,47 @@ def write_bundle(path: Path, manifest: dict, sources: dict[str, Path]) -> str:
     return seal
 
 
+def app_icon_choice() -> str | None:
+    """the manifest's app_icon, "<edition>-<colourway>", from BUILDER_APP_EDITION and BUILDER_APP_ICON; None when no colourway
+    is named. A colourway or an edition the apps do not carry is refused (cmd_build asks before any stage runs)."""
+    colourway = os.environ.get('BUILDER_APP_ICON', '')
+    if not colourway:
+        return None
+    edition = os.environ.get('BUILDER_APP_EDITION', '')
+    if colourway not in APP_ICON_COLOURWAYS or edition not in APP_ICON_EDITIONS:
+        raise BuilderError(f'app icon {edition or "(no edition)"}-{colourway}: the apps carry the colourways '
+                           f'{", ".join(APP_ICON_COLOURWAYS)} for the editions {", ".join(APP_ICON_EDITIONS)}', EXIT_USAGE)
+    return f'{edition}-{colourway}'
+
+
+def app_icon_ok(value) -> bool:
+    edition, dash, colourway = value.partition('-') if isinstance(value, str) else ('', '', '')
+    return bool(dash) and edition in APP_ICON_EDITIONS and colourway in APP_ICON_COLOURWAYS
+
+
 def role_problem(name: str, role, second: bool, size: int | None = None) -> str | None:
     """Why a component of this name and role may not be in a bundle of this format (None: it may). Shared by the profile check,
     the writer's read-back and verify."""
-    if role not in KNOWN_ROLES and not (second and role in (RUNTIME_ROLE, UI_ROLE)):
+    if role not in KNOWN_ROLES and not (second and role in (RUNTIME_ROLE, UI_ROLE, UPDATE_DATA_ROLE, DLC_ROLE)):
         return f'has the unknown role {role!r}'
+    if (role == UPDATE_DATA_ROLE) != (name == UPDATE_DATA_NAME):
+        return f'the title update\'s data archive (role {UPDATE_DATA_ROLE}), and nothing else, is named {UPDATE_DATA_NAME}'
+    if (role == DLC_ROLE) != name.startswith(DLC_PREFIX):
+        return f'DLC packs (role {DLC_ROLE}), and nothing else, are named under {DLC_PREFIX}'
+    if role == DLC_ROLE and not DLC_ENTRY.fullmatch(name[len(DLC_PREFIX):]):
+        return f'is not a DLC pack name ({DLC_PREFIX} and at most 42 lower-case letters and digits)'
     if (role == RUNTIME_ROLE) != name.startswith(RUNTIME_PREFIX):
         return f'runtime data, and nothing else, is named under {RUNTIME_PREFIX}'
     if (role == UI_ROLE) != name.startswith(UI_PREFIX):
         return f'launcher files (role {UI_ROLE}), and nothing else, are named under {UI_PREFIX}'
     if role == UI_ROLE:
         rest = name[len(UI_PREFIX):]
-        if rest.startswith('sounds/'):
-            shape = '/' not in rest[len('sounds/'):] and rest.endswith('.wav')
+        if rest.startswith(('sounds/', 'music/')):
+            shape = '/' not in rest[rest.index('/') + 1:] and rest.endswith('.wav')
         else:
             shape = '/' not in rest and rest.endswith(('.ttf', '.png', '.txt'))
         if not shape:
-            return f'is not a launcher file the app reads (.ttf, .png, .txt in {UI_PREFIX}; .wav in {UI_PREFIX}sounds/)'
+            return f'is not a launcher file the app reads (.ttf, .png, .txt in {UI_PREFIX}; .wav in {UI_PREFIX}sounds/ or music/)'
         if size is not None and size > UI_MAX_BYTES:
             return f'is larger than the {UI_MAX_BYTES} bytes the app accepts for a launcher file'
     return None
@@ -980,6 +1254,10 @@ def check_manifest(manifest, bad) -> dict[str, dict]:
             raise bad('a format-2 manifest carries no records of the machine that built it (stages, versions)')
         if not isinstance(manifest.get('portable_provenance'), dict):
             raise bad('a format-2 manifest states what the build is made from (portable_provenance)')
+    if sum(c['role'] == DLC_ROLE for c in by_name.values()) > DLC_MAX:
+        raise bad(f'more than {DLC_MAX} DLC packs')
+    if APP_ICON_KEY in manifest and not app_icon_ok(manifest[APP_ICON_KEY]):
+        raise bad(f'the manifest\'s {APP_ICON_KEY} is not "<edition>-<colourway>" of an app icon the apps carry')
     return by_name
 
 
@@ -1127,8 +1405,14 @@ def build_bundle(profile: dict, ctx: Context, rows: list[dict], path: Path) -> s
         sources[c['name']] = src
         comps.append({'name': c['name'], 'role': c['role'], 'size': src.stat().st_size, 'sha256': sha256_file(src),
                       'stage': c['stage'], 'provenance': stage_by_id[c['stage']]['provenance']})
-    game = {'id': ctx.game.get('id', ''), 'executable_sha256': ctx.game['executable_sha256'],
-            'executable_size': ctx.game['executable_size']}
+    for name, src in getattr(ctx, 'dlc', []):            # the player's own packs, as they are (collect_dlc checked them)
+        entry = DLC_PREFIX + name
+        sources[entry] = src
+        comps.append({'name': entry, 'role': DLC_ROLE, 'size': src.stat().st_size, 'sha256': sha256_file(src),
+                      'stage': 'dlc', 'provenance': 'player-file'})
+    game = bundle_game(ctx.game)
+    choice = app_icon_choice()
+    icon = {APP_ICON_KEY: choice} if choice else {}
     if spec.get('format', 1) == 2:
         # A tool is named as the profile writes it (unexpanded, so without this machine's paths) with its content hash.
         tools = [{'name': t, 'sha256': sha256_file(Path(ctx.expand(t)))} for t in sorted(spec.get('portable_tools', []))]
@@ -1140,6 +1424,7 @@ def build_bundle(profile: dict, ctx: Context, rows: list[dict], path: Path) -> s
             'runtime_abi': spec['runtime_abi'],
             'portable_provenance': dict(spec.get('provenance', {}), tools=tools),
             'components': sorted(comps, key=lambda c: c['name']),
+            **icon,
         }
         return _write_checked(path, manifest, sources, ctx, len(comps))
     manifest = {
@@ -1151,6 +1436,7 @@ def build_bundle(profile: dict, ctx: Context, rows: list[dict], path: Path) -> s
         'versions': dict(spec.get('versions', {}), builder_sha256=hashlib.sha256(__loader__.get_data(__file__)).hexdigest()),
         'stages': [{'id': r['stage'], 'key': r['key'], 'provenance': r['provenance']} for r in rows],
         'components': sorted(comps, key=lambda c: c['name']),
+        **icon,
     }
     return _write_checked(path, manifest, sources, ctx, len(comps))
 
@@ -1158,7 +1444,7 @@ def build_bundle(profile: dict, ctx: Context, rows: list[dict], path: Path) -> s
 def _write_checked(path: Path, manifest: dict, sources: dict, ctx: Context, count: int) -> str:
     seal = write_bundle(path, manifest, sources)
     try:
-        verify_bundle(path, ctx.game['executable_sha256'])   # read back what was written, as the app will
+        verify_bundle(path, manifest['game']['executable_sha256'])   # read back what was written, as the app will
     except BuilderError:
         path.unlink()                                        # a bundle the app would refuse is not left behind
         raise
@@ -1210,16 +1496,33 @@ def cmd_build(a) -> int:
     ctx.discs['play'] = open_disc(a.play_disc)
     if a.install_disc:
         ctx.discs['install'] = open_disc(a.install_disc)
-    ctx.game = identify(profile, ctx.discs['play'])
+    if a.title_update:
+        ctx.discs['update'] = open_update(a.title_update)
+    ctx.game = identify(profile, ctx.discs['play'], ctx.discs.get('update'))
     report['game'] = {k: ctx.game[k] for k in ('id', 'executable', 'executable_sha256', 'executable_size') if k in ctx.game}
     print(f'Game: {ctx.game.get("label", ctx.game.get("id", "?"))} ({ctx.discs["play"].kind} input, '
           f'{ctx.game["executable"]} {short(ctx.game["executable_sha256"])}, {ctx.game["executable_size"]} bytes)')
+    if ctx.game.get('title_update'):
+        tu = ctx.game['title_update']
+        report['game']['title_update'] = {'label': tu['label'], 'executable_sha256': tu['executable_sha256']}
+        print(f'Title update: {tu["label"]} ({ctx.discs["update"].kind} input; the patched executable must be '
+              f'{short(tu["executable_sha256"])})')
     if 'install' not in ctx.discs:
         print('Install disc: not given (the code bundle does not need it unless a stage says so below).')
     # 2. plan: every path and variable of the profile, before anything runs
     plan_paths(profile, ctx)
     output = plan_output(profile, ctx)
     bundle_path = out_dir / (output[0] if output else plan_bundle(profile, ctx))
+    if a.dlc and output:
+        raise BuilderError(f'DLC packs travel in a code bundle; this build writes {output[0]}', EXIT_USAGE)
+    ctx.dlc = collect_dlc(a.dlc, ctx.game, (profile.get('bundle') or {}).get('format', 1))   # read through, before any stage
+    if ctx.dlc:
+        report['dlc'] = [{'name': name, 'size': f.stat().st_size} for name, f in ctx.dlc]
+        print(f'DLC: {len(ctx.dlc)} packs, {sum(r["size"] for r in report["dlc"])} bytes, each read through and checked '
+              '(the bundle carries them as they are)')
+    if not output and app_icon_choice():         # a choice the apps do not carry is refused here, before any stage runs
+        report['app_icon'] = app_icon_choice()
+        print(f'App icon: {report["app_icon"]} (named in the bundle; the app shows this icon once it imports the bundle)')
     # 3. prerequisites (and the other disc files), all before any stage
     failures = check_disc_files(ctx.game, ctx.discs, a.hash_disc_files) + check_prerequisites(profile, ctx, supply)
     for s in supply:
@@ -1283,9 +1586,11 @@ def cmd_build(a) -> int:
 def cmd_identify(a) -> int:
     profile = load_profile(a.profile)
     disc = open_disc(a.play_disc)
-    game = identify(profile, disc)
+    game = identify(profile, disc, open_update(a.title_update) if a.title_update else None)
     print(f'{game.get("label", game.get("id", "?"))}: {game["executable"]} {short(game["executable_sha256"])}, '
           f'{game["executable_size"]} bytes ({disc.kind} input)')
+    if game.get('title_update'):
+        print(f'with {game["title_update"]["label"]}: patched executable {short(game["title_update"]["executable_sha256"])}')
     return EXIT_OK
 
 
@@ -1307,6 +1612,9 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument('--profile', type=Path, required=True)
     b.add_argument('--play-disc', type=Path, required=True)
     b.add_argument('--install-disc', type=Path)
+    b.add_argument('--title-update', type=Path, help="the player's own title-update package (or a folder of its files)")
+    b.add_argument('--dlc', type=Path, action='append', default=[],
+                   help="the player's own DLC pack, or a folder of them (may be given more than once)")
     b.add_argument('--work', type=Path, required=True)
     b.add_argument('--out', type=Path, help='where the bundle goes (default WORK/out)')
     b.add_argument('--dry-run', action='store_true')
@@ -1322,6 +1630,7 @@ def main(argv: list[str] | None = None) -> int:
     i = sub.add_parser('identify', help='only identify the game on the play disc')
     i.add_argument('--profile', type=Path, required=True)
     i.add_argument('--play-disc', type=Path, required=True)
+    i.add_argument('--title-update', type=Path)
     i.set_defaults(fn=cmd_identify)
     v = sub.add_parser('verify', help='verify a bundle file')
     v.add_argument('bundle', type=Path)

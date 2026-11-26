@@ -83,7 +83,7 @@ class HalfColorReferenceTests(unittest.TestCase):
         self.assertEqual(proof['copy_words'],[0xFF000000]*4)
         reference=guard+struct.pack('<4e',1,0,0,1)*4+guard
         _,proof=sequence_store_copy_reference(reference);self.assertEqual(proof['copy_words'],[0xFFFF0000]*4)
-        for bad in (reference[:-4],b'\0'+reference[1:],guard+struct.pack('<4H',1,0,0,0x3C00)*4+guard):
+        for bad in (reference[:-4],b'\0'+reference[1:],guard+struct.pack('<4H',0x7C00,0,0,0x3C00)*4+guard):
             with self.assertRaises(ValueError):sequence_store_copy_reference(bad)
 
     def test_product_narrowing_is_a_separate_falsifiable_policy(self):

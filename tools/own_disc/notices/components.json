@@ -13,6 +13,7 @@
     "android/*",
     "local-analysis/*",
     "host-tools/xex_image.exe",
+    "host-tools/xex_patch.exe",
     "host-tools/xmem-lzx.exe"
    ],
    "note": "The tools, the launcher, the runtime sources and the parameter files are this project's own work unless a part below says otherwise. The complete sources of every program in this package are in the download.",
@@ -32,6 +33,7 @@
    "in_package": [
     "host-tools/XenonRecomp.exe",
     "host-tools/xex_image.exe",
+    "host-tools/xex_patch.exe",
     "host-tools/ppc_context.h"
    ],
    "note": "Built with this project's patches; the patched source and the build script are in the download. As a whole XenonRecomp.exe comes under the GNU General Public License because of part 3.",
@@ -71,7 +73,8 @@
    "terms": "GNU Lesser General Public License, version 2.1",
    "in_package": [
     "host-tools/XenonRecomp.exe",
-    "host-tools/xmem-lzx.exe"
+    "host-tools/xmem-lzx.exe",
+    "host-tools/xex_patch.exe"
    ],
    "note": "Only mspack/lzxd.c is compiled in. Its source and the build script are in the download, so the programs can be linked again with another version of it.",
    "texts": [
@@ -89,7 +92,8 @@
    "terms": "The Unlicense (public domain)",
    "in_package": [
     "host-tools/XenonRecomp.exe",
-    "host-tools/xex_image.exe"
+    "host-tools/xex_image.exe",
+    "host-tools/xex_patch.exe"
    ],
    "texts": [
     {
@@ -106,7 +110,8 @@
    "terms": "permission notice in the file",
    "in_package": [
     "host-tools/XenonRecomp.exe",
-    "host-tools/xex_image.exe"
+    "host-tools/xex_image.exe",
+    "host-tools/xex_patch.exe"
    ],
    "note": "The notice below is the head of TinySHA1.hpp.",
    "texts": [
@@ -129,6 +134,7 @@
    "in_package": [
     "host-tools/XenonRecomp.exe",
     "host-tools/xex_image.exe",
+    "host-tools/xex_patch.exe",
     "host-tools/xenos/*/XenosRecomp.exe",
     "host-tools/xenos/*/XenosShaderPreflight.exe"
    ],
@@ -251,9 +257,10 @@
    "terms": "GNU Lesser General Public License, version 2.1 or later",
    "in_package": [
     "local-analysis/builder/xma-source/*",
-    "tools/own_disc/xma_decoder/*"
+    "tools/own_disc/xma_decoder/*",
+    "tools/own_disc/xma2_decode.py"
    ],
-   "note": "Carried as source and compiled by the player's own run with the command list beside it.",
+   "note": "Carried as source and compiled by the player's own run with the command list beside it. tools/own_disc/xma2_decode.py (the ui stage's menu-sound decoder) is a Python transcription of its wmaprodec.c and wma.c, under the same licence; it reads its code tables from this source archive. One file, libavcodec/wmaprodec.c, is also compiled from this project's changed copy (tools/own_disc/xma_decoder/cor02/: a flush callback for the raw-frames XMA decoder; the whole change is cor02/xmaframes-flush.patch) as an extra unit of the game library; the sound decoder stage itself compiles the revision's file.",
    "texts": [
     {
      "root": "ffmpeg-tar",

@@ -33,9 +33,11 @@ every Python version), and the transcendental constants (the transform's cosines
 Decimal arithmetic at 40 digits, rounded once to double. So every host decodes the same samples. Doubles are used where
 FFmpeg uses single precision; the samples differ from FFmpeg's by rounding only (about 1e-7).
 
-    decode(packets: bytes, samples: int, tables: dict) -> list of floats in [-1, 1]
+    decode(packets: bytes, samples: int, sample_rate: int, tables: dict) -> list of floats in [-1, 1]
+    decode_blocks([(packets, skip, count), ...], samples, sample_rate, tables) -> array('d')  (a streamed AWC's blocks)
     load_tables(ffmpeg_source_tar) -> dict
 """
+import array
 import decimal
 import hashlib
 import math
@@ -485,49 +487,98 @@ class Decoder:
         self.prev_block_len = sl
 
 
+class Stream:
+    """One mono XMA2 stream fed in pieces of whole packets: the decoder state and a frame that continues in the next packet
+    are kept between pieces, so the pieces decode as one stream."""
+
+    def __init__(self, tables: dict, sample_rate: int):
+        self.dec = Decoder(tables, sample_rate)
+        self.reservoir = None                         # (value, bits) of a frame that continues in the next packet
+        self.skip = 0
+
+    def feed(self, packets: bytes) -> list:
+        if len(packets) % PACKET or not packets:
+            raise XmaError('the stream is not whole %d-byte packets' % PACKET)
+        dec, out = self.dec, []
+        for p in range(0, len(packets), PACKET):
+            if self.skip:
+                self.skip -= 1
+                continue
+            br = Bits.of(packets[p:p + PACKET])
+            br.read(6)                                # frame count
+            prev = br.read(LOG2_FRAME_SIZE)
+            br.read(3)
+            self.skip = br.read(8)
+            done = False
+            if prev > 0:
+                if prev >= br.left():
+                    prev, done = br.left(), True
+                if self.reservoir is not None:
+                    v, n = br.take(prev)
+                    frame = Bits((self.reservoir[0] << n) | v, self.reservoir[1] + n)
+                    s, more = dec.frame(frame)
+                    out += s
+                else:
+                    br.read(prev)
+            self.reservoir = None
+            while not done:
+                left = br.left()
+                size = br.peek(LOG2_FRAME_SIZE) if left > LOG2_FRAME_SIZE else 0
+                if not size or size > left:
+                    break
+                v, n = br.take(size)
+                s, more = dec.frame(Bits(v, n))
+                out += s
+                if not more:
+                    break
+            if br.left() > 0:
+                self.reservoir = br.take(br.left())
+        return out
+
+    def end(self) -> list:
+        """The end of the stream: the last half frame of the transform, then silence for the other half."""
+        return self.dec.out[:SAMPLES_PER_FRAME >> 1] + [0.0] * (SAMPLES_PER_FRAME >> 1)
+
+
 def decode(packets: bytes, samples: int, sample_rate: int, tables: dict) -> list:
     """The first `samples` samples of a mono XMA2 stream (whole 2048-byte packets), as FFmpeg's decoder gives them."""
     if len(packets) % PACKET or not packets:
         raise XmaError('the stream is not whole %d-byte packets' % PACKET)
-    dec = Decoder(tables, sample_rate)
-    out = []
-    reservoir = None                                  # (value, bits) of a frame that continues in the next packet
-    skip = 0
-    for p in range(0, len(packets), PACKET):
-        if skip:
-            skip -= 1
-            continue
-        br = Bits.of(packets[p:p + PACKET])
-        br.read(6)                                    # frame count
-        prev = br.read(LOG2_FRAME_SIZE)
-        br.read(3)
-        skip = br.read(8)
-        done = False
-        if prev > 0:
-            if prev >= br.left():
-                prev, done = br.left(), True
-            if reservoir is not None:
-                v, n = br.take(prev)
-                frame = Bits((reservoir[0] << n) | v, reservoir[1] + n)
-                s, more = dec.frame(frame)
-                out += s
-            else:
-                br.read(prev)
-        reservoir = None
-        while not done:
-            left = br.left()
-            size = br.peek(LOG2_FRAME_SIZE) if left > LOG2_FRAME_SIZE else 0
-            if not size or size > left:
-                break
-            v, n = br.take(size)
-            s, more = dec.frame(Bits(v, n))
-            out += s
-            if not more:
-                break
-        if br.left() > 0:
-            reservoir = br.take(br.left())
-    if len(out) < samples:                            # end of stream: the last half frame of the transform
-        out += dec.out[:SAMPLES_PER_FRAME >> 1] + [0.0] * (SAMPLES_PER_FRAME >> 1)
+    stream = Stream(tables, sample_rate)
+    out = stream.feed(packets)
+    if len(out) < samples:
+        out += stream.end()
     if len(out) < samples:
         raise XmaError('the stream holds %d samples, its header says %d' % (len(out), samples))
     return out[:samples]
+
+
+def decode_blocks(blocks, samples: int, sample_rate: int, tables: dict) -> array.array:
+    """The first `samples` samples of a mono XMA2 stream that a streamed AWC stores in blocks: blocks is a list of (packets,
+    skip, count); a block keeps samples skip..count of what its packets decode to. A packet that holds the boundary between
+    two blocks is stored in both: the first block decodes past its count (the rest is dropped) and the next one decodes the
+    packet's frames before the boundary again, as its `skip` samples.
+
+    One decoder runs through every block. A block whose skip is 0 continues the transform of the block before (a fresh decoder
+    would fade its first half frame in from silence); a block that repeats a packet re-primes the transform within its skip.
+    That holds only for a stream laid out as described, so anything else is refused: a block that starts with a repeated
+    packet (it follows a block that decoded past its count) must skip at least one frame, a block that skips must follow one
+    that decoded past its count, the first block skips nothing, every block decodes to at least its count, and the stream
+    holds at least `samples`."""
+    stream = Stream(tables, sample_rate)
+    kept = array.array('d')
+    extra = 0
+    for i, (packets, skip, count) in enumerate(blocks):
+        if not 0 <= skip <= count or (skip > 0) != (extra > 0) or 0 < skip < SAMPLES_PER_FRAME:
+            raise XmaError('block %d: skips %d samples after a block that decoded %d past its count' % (i, skip, extra))
+        out = stream.feed(packets)
+        if i == len(blocks) - 1 and len(out) < count:
+            out += stream.end()
+        if len(out) < count:
+            raise XmaError('block %d decodes to %d samples, its header says %d' % (i, len(out), count))
+        extra = len(out) - count
+        kept.extend(out[skip:count])
+    if len(kept) < samples:
+        raise XmaError('the stream holds %d samples, its header says %d' % (len(kept), samples))
+    del kept[samples:]
+    return kept

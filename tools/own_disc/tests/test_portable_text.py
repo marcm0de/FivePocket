@@ -32,7 +32,7 @@ tools/own_disc/builder.py tools/own_disc/replay_build.py tools/own_disc/freeze_b
 tools/vulkan_probe tools/own_disc/build_shader_fixes.py tools/own_disc/build_xma_decoder.py tools/own_disc/elf_sections.py
 tools/own_disc/portable_compile.py tools/own_disc/shader_toolchain.py
 tools/own_disc/build_ui_assets.py tools/own_disc/ui_fonts.py tools/own_disc/ui_pictures.py tools/own_disc/ui_sounds.py
-tools/own_disc/xma2_decode.py
+tools/own_disc/xma2_decode.py tools/own_disc/ui_music.py
 '''.split()
 SEARCH = ('tools/own_disc', 'tools/iter', 'tools/fp_codegen', 'tools/fp_codegen/recipe', 'tools/rpf7_inventory', 'tools/host_guest_trace', 'tools')
 NOT_FILES = {'os', 'io', 'gzip', 'zipfile', 'tarfile', 'webbrowser', 'bz2', 'lzma'}

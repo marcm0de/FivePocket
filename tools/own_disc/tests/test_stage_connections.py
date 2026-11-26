@@ -45,6 +45,17 @@ class Connections(unittest.TestCase):
                 self.assertEqual(command[command.index('--context') + 1], str(named.get('context', root / 'local-analysis/xenonrecomp-build/src/XenonUtils/ppc_context.h')))
                 self.assertEqual(command[command.index('--work') + 1], str(work / 'codegen'))
                 self.assertIn(str(work / 'input/default.xex'), (work / 'codegen-input/recomp.toml').read_text())
+            # a title-update profile: its own configuration (switch tables beside it) and its patched executable
+            (root / 'tu').mkdir()
+            (root / 'tu/recomp.toml').write_text('file_path = "old"\nswitch_table_file_path = "sw.toml"\n')
+            ran = []
+            with mock.patch.object(m.subprocess, 'run', side_effect=lambda command, **k: ran.append(command)):
+                m.run_codegen(root, root / 'w4', config=root / 'tu/recomp.toml', xex='patch/default.xex', into='tu-codegen')
+            written = (root / 'w4/tu-codegen-input/recomp.toml').read_text()
+            self.assertEqual((ran[0][ran[0].index('--work') + 1], ran[0][ran[0].index('--report') + 1]),
+                             (str(root / 'w4/tu-codegen'), str(root / 'w4/tu-codegen-report.json')), 'beside the disc\'s code, not over it')
+            self.assertIn(json.dumps(str(root / 'w4/patch/default.xex')), written)
+            self.assertIn(json.dumps(str(root / 'tu/sw.toml')), written)
             # the command line hands both on
             seen = []
             argv = ['compile_rehearsal.py', 'codegen', '--repo', str(root), '--work', str(root / 'local-analysis/builder/w3'),
@@ -52,11 +63,20 @@ class Connections(unittest.TestCase):
             with mock.patch.object(m.sys, 'argv', argv), mock.patch.object(m, 'run_codegen', side_effect=lambda *a: seen.append(a)), \
                  mock.patch.object(m, 'run_recipe', side_effect=AssertionError('the generator stage was asked for')):
                 m.main()
-            self.assertEqual(seen, [(root, root / 'local-analysis/builder/w3', root / 'host/XenonRecomp.exe', root / 'host/ppc_context.h')])
+            self.assertEqual(seen, [(root, root / 'local-analysis/builder/w3', root / 'host/XenonRecomp.exe', root / 'host/ppc_context.h', None, None, 'codegen')])
+            seen = []
+            with mock.patch.object(m.sys, 'argv', argv + ['--config', str(root / 'tu/recomp.toml'), '--xex', 'patch/default.xex']), \
+                 mock.patch.object(m, 'run_codegen', side_effect=lambda *a: seen.append(a)):
+                m.main()
+            self.assertEqual(seen[0][4:], (root / 'tu/recomp.toml', 'patch/default.xex', 'codegen'))
+            for outside in ('../input/default.xex', '/abs/default.xex', 'patch/../../x.xex'):
+                with self.subTest(outside), mock.patch.object(m.sys, 'argv', argv + ['--xex', outside]), \
+                     mock.patch.object(m, 'run_codegen', side_effect=AssertionError('ran')), self.assertRaises(SystemExit):
+                    m.main()
             seen = []
             with mock.patch.object(m.sys, 'argv', argv[:6]), mock.patch.object(m, 'run_codegen', side_effect=lambda *a: seen.append(a)):
                 m.main()
-            self.assertEqual(seen, [(root, root / 'local-analysis/builder/w3', None, None)])
+            self.assertEqual(seen, [(root, root / 'local-analysis/builder/w3', None, None, None, None, 'codegen')])
             seen = []
             with mock.patch.object(m.sys, 'argv', ['compile_rehearsal.py', 'recipe'] + argv[2:6]), mock.patch.object(m, 'run_recipe', side_effect=lambda *a: seen.append(a)), \
                  mock.patch.object(m, 'run_codegen', side_effect=AssertionError('the recipe stage was asked for')):

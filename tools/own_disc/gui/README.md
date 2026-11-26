@@ -13,11 +13,6 @@ as the command-line builder, so the files it makes are the same, byte for byte.
   and the **Windows on ARM** builder download. The ARM download brings its own native ARM64 compiler programs and
   makes the same files, byte for byte. The x64 download stops at its first check on an ARM laptop and says so: its
   Android compiler would run emulated there, and emulated floating point differs.
-- Linux (in preparation, not yet released or verified): a PC with an Intel or AMD (x86_64) processor, Python 3.9 or newer
-  as `python3`, and the Linux builder download. Start the window with `python3 tools/own_disc/gui/web_app.py` in the
-  unpacked folder (the command line: `./builder`). The window opens in Edge, Chrome or Chromium in app mode when one is
-  installed, else in your default browser; the disc dialogs need `zenity` or `kdialog` (or name the two images on the
-  command line). Linux on ARM is refused at the first check: Google's Android compiler for Linux is x86_64 only.
 
 ## How to use it
 1. Unpack the builder into a short folder, for example `C:\FivePocket`. Then double-click **FivePocket Builder.exe**.

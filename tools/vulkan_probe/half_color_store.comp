@@ -5,7 +5,9 @@ layout(set=0,binding=0,std430) readonly buffer Source { uint words[]; } source;
 layout(set=0,binding=1,std430) buffer Backing { uint words[]; } backing;
 bool halfBits(uint halfWord,out uint bits){
     uint exponent=(halfWord>>10u)&31u,mantissa=halfWord&1023u;
-    if(exponent==31u || (exponent==0u && mantissa!=0u))return false;
+    if(exponent==31u)return false;
+    // A subnormal half (|x| < 2^-14) packs to code 0 / alpha 0 exactly, so it is flushed to signed zero. Refusing it left
+    // the pixel unwritten (zeroed backing = black contour lines where a movie channel crosses zero; banding lane 11-22).
     bits=((halfWord&0x8000u)<<16u)|(exponent==0u?0u:((exponent+112u)<<23u)|(mantissa<<13u));
     return true;
 }

@@ -289,17 +289,25 @@ GENERATOR = 'local-analysis/xenonrecomp-build/build/XenonRecomp/XenonRecomp'    
 GENERATOR_CONTEXT = 'local-analysis/xenonrecomp-build/src/XenonUtils/ppc_context.h'
 
 
-def run_codegen(root, work, generator=None, context=None):
-    """generator, context: another host's build of the generator and the header it ships with (default: this Mac's)."""
-    cfg = root / 'local-analysis/regen/flags-off/recomp.toml'
-    dst = work / 'codegen-input/recomp.toml'
+CODEGEN_CONFIG = 'local-analysis/regen/flags-off/recomp.toml'
+CODEGEN_XEX = 'input/default.xex'
+
+
+def run_codegen(root, work, generator=None, context=None, config=None, xex=None, into='codegen'):
+    """generator, context: another host's build of the generator and the header it ships with (default: this Mac's).
+    config: the generator configuration whose switch_table_file_path is read beside it (default: the 1.0 one); xex: the
+    executable in the work folder it generates from (default: the play disc's, input/default.xex; a title-update profile
+    names its patched executable); into: the output's name in the work folder (NAME/ppc, NAME-input, NAME-report.json;
+    default codegen; a title-update profile generates its update's code beside the disc's)."""
+    cfg = Path(config) if config else root / CODEGEN_CONFIG
+    dst = work / (into + '-input') / 'recomp.toml'
     dst.parent.mkdir(parents=True, exist_ok=True)
-    dst.write_text(generator_config(cfg.read_text(), cfg.parent, work / 'input/default.xex'), encoding='utf-8', newline='\n')
+    dst.write_text(generator_config(cfg.read_text(), cfg.parent, work / (xex or CODEGEN_XEX)), encoding='utf-8', newline='\n')
     subprocess.run([sys.executable, '-B', str(root / 'tools/own_disc/regen_check.py'),
                     '--generator', str(generator or root / GENERATOR),
                     '--context', str(context or root / GENERATOR_CONTEXT),
-                    '--config-from', str(dst), '--work', str(work / 'codegen'),
-                    '--report', str(work / 'codegen-report.json'), '--keep'], check=True)
+                    '--config-from', str(dst), '--work', str(work / into),
+                    '--report', str(work / (into + '-report.json')), '--keep'], check=True)
 
 
 RECIPE = 'local-analysis/recipes/recipe-v455.json'
@@ -401,6 +409,32 @@ def native_pack_includes(root, commands, packs):
     return first
 
 
+def with_decoder_unit(root, work, spec, xma_archives):
+    """The attempt with COR-02's sound-decoder object (named in link_extra, ready-made) made in this run instead (lead's option A,
+    2026-11-24): compiled from the changed file with the XMA plan's own command in a copy of this run's XMA folder
+    (xma_extra_unit.py), byte-equal to the ready-made one, and written down as compile/cor02-proof.json for freeze_build.py
+    --extra-compile. An attempt without it is returned as it is."""
+    import xma_extra_unit
+    named = [w for w in spec.get('link_extra', []) if not w.startswith('-') and Path(w).name == xma_extra_unit.OBJECT_NAME]
+    if not named:
+        return spec
+    if len(named) != 1 or xma_archives is None:
+        raise ValueError('the attempt links the decoder object; the compile needs --xma-archives (this run\'s XMA folder) and one such object')
+    if sha(named[0]) != xma_extra_unit.OBJECT_SHA256['plan.json']:
+        raise ValueError(f'{named[0]} is not the decoder object the builder can make (08322eee...)')
+    cfg = json.loads((root / 'local-analysis/attempts/config.json').read_text())
+    link = json.loads((root / cfg['base_build'] / 'link-plan.json').read_text())
+    unit = xma_extra_unit.prepare(Path(xma_archives), work / 'compile/xma-cor02', Path(link['command'][0]).with_name('clang'))
+    subprocess.run(unit['command'], cwd=root / cfg['build_cwd'], check=True, capture_output=True)
+    made = sha(unit['object'])
+    if made != unit['want']:
+        raise ValueError(f'the decoder unit made {made[:16]}, not the object the attempt links ({unit["want"][:16]})')
+    write_json(work / 'compile/cor02-proof.json', {'command': unit['command'], 'sha256': made})
+    out = copy.deepcopy(spec)
+    out['link_extra'] = [unit['object'] if w == named[0] else w for w in spec['link_extra']]
+    return out
+
+
 def run_compile(root, work, shader_extras, portable_build_id=None, native_packs=None, xma_archives=None, measurements=True,
                 kept_objects=False, attempt_name='v507', shader_fixes=None):
     """attempt_name: the attempt whose build this is (its attempt.json, runtime sources and version script); shader_fixes: the
@@ -486,6 +520,7 @@ def run_compile(root, work, shader_extras, portable_build_id=None, native_packs=
     if len(scripts) > 1:
         raise ValueError('the attempt names more than one linker script; explicit mapping required')
     connect = lambda chosen: connected_spec(chosen, attempt, work / 'recipe/chunks', pinned, link_words, first_includes, generated)
+    spec = with_decoder_unit(root, work, spec, xma_archives)
     write_json(attempt / 'attempt.json', connect(without_script(spec, scripts[0]) if scripts else spec))
     it.ATTEMPTS = attempts
     # Config and command plans remain immutable inputs. Cache/output roots are exclusively this run's.
@@ -578,6 +613,9 @@ def main():
     ap.add_argument('--recipe', type=Path, help='recipe: the recipe record to build from (default: local-analysis/recipes/recipe-v455.json)')
     ap.add_argument('--generator', type=Path, help='codegen: this host\'s build of the generator (default: this Mac\'s private build)')
     ap.add_argument('--context', type=Path, help='codegen: the generator\'s ppc_context.h (default: beside this Mac\'s private build)')
+    ap.add_argument('--config', type=Path, help='codegen: the generator configuration (default: ' + CODEGEN_CONFIG + ')')
+    ap.add_argument('--xex', help='codegen: the executable, relative to the work folder (default: ' + CODEGEN_XEX + ')')
+    ap.add_argument('--into', default='codegen', help='codegen: the output folder\'s name in the work folder (default: codegen)')
     ap.add_argument('--xma-archives', type=Path,
                     help='build folder of build_xma_decoder.sh from this run: its two archives are linked in the place of the supplied ones')
     args = ap.parse_args()
@@ -591,7 +629,13 @@ def main():
                     not args.without_measurements, args.build_kept_objects, args.attempt,
                     args.shader_fixes.resolve() if args.shader_fixes else None)
     elif args.stage == 'codegen':
-        run_codegen(root, work, args.generator.resolve() if args.generator else None, args.context.resolve() if args.context else None)
+        if args.xex is not None and (not re.fullmatch(r'[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*', args.xex)
+                                     or {'.', '..'} & set(args.xex.split('/'))):
+            raise SystemExit('--xex names a file below the work folder')
+        if not re.fullmatch(r'[a-z0-9][a-z0-9-]*', args.into):
+            raise SystemExit('--into names one folder of the work folder (lower-case letters, digits, dashes)')
+        run_codegen(root, work, args.generator.resolve() if args.generator else None, args.context.resolve() if args.context else None,
+                    args.config.resolve() if args.config else None, args.xex, args.into)
     else:
         run_recipe(root, work, args.recipe.resolve() if args.recipe else None)
 

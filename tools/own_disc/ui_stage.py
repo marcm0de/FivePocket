@@ -20,13 +20,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ui_fonts  # noqa: E402
 import ui_pictures  # noqa: E402
+import ui_music  # noqa: E402
 import ui_sounds  # noqa: E402
 
 STAGE_ID = 'ui-assets'
 PINS_SCHEMA = 'own-disc-ui-pins/1'
 FFMPEG_SOURCE = '${repo}/local-analysis/builder/xma-source/ffmpeg-15ece0882e8d.tar'
 KEY_ADDRESS = '0x83bd4c98'
-OWN = ['build_ui_assets.py', 'ui_fonts.py', 'ui_pictures.py', 'ui_sounds.py', 'xma2_decode.py']
+OWN = ['build_ui_assets.py', 'ui_fonts.py', 'ui_music.py', 'ui_pictures.py', 'ui_sounds.py', 'xma2_decode.py']
+MUSIC = 'ui/music/launcher-music.wav'
+PARTS = 'fonts,glyphs,art,sounds,music'          # every part: the stage pins every file (build_ui_assets.py's default leaves out music)
 SUPPORT = ['disc_builder.py', 'host_support.py', 'checkout_refusal.py', 'build_shader_pack.py', 'shader_toolchain.py']
 
 
@@ -34,7 +37,7 @@ def files():
     """Every file the stage writes into the bundle, as its component name."""
     return sorted(['ui/' + f for f in ui_fonts.FACES.values()] + ['ui/glyph-%s.png' % p for p in ui_pictures.GLYPHS]
                   + ['ui/' + n for n in ui_pictures.ART] + ['ui/sounds/%s.wav' % n.lower() for n in ui_sounds.NAMES]
-                  + ['ui/manifest.txt'])
+                  + ['ui/manifest.txt', MUSIC])
 
 
 def output_key(name):
@@ -59,8 +62,9 @@ def add(profile: dict, pins: dict) -> dict:
     outputs.update({output_key(n): STAGE_ID + '/' + n for n in files()})
     profile['stages'].append({
         'id': STAGE_ID, 'adapter': 'command', 'heavy': False,
-        'description': 'The launcher\'s fonts, controller glyphs, backdrop and tile pictures and the SELECT / BACK menu sounds, made '
-                       'from the play disc (archive key recovered in memory from this run codegen); the same bytes on every host.',
+        'description': 'The launcher\'s fonts, controller glyphs, backdrop and tile pictures, the SELECT / BACK menu sounds and its '
+                       'music (the score track %s), made from the play disc (archive key recovered in memory from this run '
+                       'codegen); the same bytes on every host.' % ui_music.BANK.split('/')[-1],
         'tools': ['${python}'] + ['${repo}/tools/own_disc/' + f for f in OWN + SUPPORT] + ['${repo}/tools/rpf7_inventory',
                                                                                              '${hosttools}/xmem-lzx${exe}'],
         'inputs': {'generated': '${out:codegen:tree}', 'ffmpeg_source': FFMPEG_SOURCE},
@@ -69,7 +73,7 @@ def add(profile: dict, pins: dict) -> dict:
         'clean': [STAGE_ID],
         'argv': ['${python}', '-B', '${repo}/tools/own_disc/build_ui_assets.py', '--play', '${disc:play}',
                  '--generated', '${out:codegen:tree}', '--xmem', '${hosttools}/xmem-lzx${exe}', '--ffmpeg-source', FFMPEG_SOURCE,
-                 '--key-address', KEY_ADDRESS, '--output', '${work}/' + STAGE_ID]})
+                 '--key-address', KEY_ADDRESS, '--parts', PARTS, '--output', '${work}/' + STAGE_ID]})
     bundle['components'] = bundle['components'] + [{'name': n, 'role': 'ui-asset', 'stage': STAGE_ID, 'output': output_key(n)}
                                                    for n in files()]
     tools = bundle.get('portable_tools', [])

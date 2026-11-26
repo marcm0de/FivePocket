@@ -17,7 +17,10 @@ def packed_half(rgba):
 
 @lru_cache(maxsize=65536)
 def _packed_half(rgba):
-    if any((h&0x7C00)==0x7C00 or ((h&0x7C00)==0 and h&1023) for h in rgba):return None
+    if any((h&0x7C00)==0x7C00 for h in rgba):return None
+    # Subnormal halves (|x| < 2**-14) pack to code 0 / alpha 0 exactly, so flushing them to signed zero is exact.
+    # Refusing them left the pixel unwritten: black contour lines where a movie channel crosses zero (banding lane 11-22).
+    rgba=tuple(h&0x8000 if (h&0x7C00)==0 else h for h in rgba)
     channels=struct.unpack('<4e',struct.pack('<4H',*rgba))
     try:return pack(tuple(bits(c) for c in channels))
     except ValueError:return None
@@ -41,6 +44,6 @@ def store_reference(source):
                     if packed is not None:struct.pack_into('<I',result,target+local_x*4,packed);written+=1
     return bytes(result),dict(source_bytes=len(source),output_bytes=len(result),written_pixels=written,
         rejected_pixels=1280*720-written,full_surface_written=written==1280*720,
-        source_half_policy='finite-normal-or-signed-zero; subnormal-and-nonfinite-pixels-unwritten',
+        source_half_policy='finite; subnormal-flushed-to-signed-zero (exact); nonfinite-pixels-unwritten',
         packed_policy='checked-7e3-nearest-even-rgb-and-float32-alpha-multiply3-add-half-truncate',
         reference_footprint=layout,retail_format12_verified=False,guest_writeback=False)

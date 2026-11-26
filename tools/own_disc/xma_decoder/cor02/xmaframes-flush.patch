@@ -1,0 +1,46 @@
+2025a2026,2068
+> }
+> 
+> /**
+>  *@brief Put the raw-frames decoder back into the state xmaframes_decode_init leaves.
+>  *
+>  * The raw-frames decoder had no flush callback, so avcodec_flush_buffers left all
+>  * of the previous stream's decode state in place: the overlap half of each
+>  * channel's output buffer, the previous block length (it selects the window of
+>  * the next frame's first subframe), the saved scale factors and their reuse
+>  * flags, the subframe layout. A decoder that is flushed and then given another
+>  * stream (or the same stream from another position) must decode it as a newly
+>  * opened decoder does. The stock flush() above is not that: it clears the
+>  * overlap buffer only.
+>  *
+>  * Everything decode_init computed once (the configuration, the MDCT contexts,
+>  * the windows, the band tables: the members before pgb) is kept. Every member a
+>  * frame decode writes is set to what decode_init left: zero, except the three
+>  * values below. Channels beyond nb_channels are never written by a decode.
+>  *@param avctx codec context
+>  */
+> static void xmaframes_flush(AVCodecContext *avctx)
+> {
+>     WMAProDecodeCtx *s = avctx->priv_data;
+>     const int8_t nb_channels = s->nb_channels;
+>     int i;
+> 
+>     /* scratch a frame decode fills before it reads it */
+>     memset(s->frame_data, 0, sizeof(s->frame_data));
+>     init_put_bits(&s->pb, s->frame_data, MAX_FRAMESIZE);
+>     memset(s->tmp, 0, sizeof(s->tmp));
+> 
+>     /* packet, frame and subframe decode state, the channel groups */
+>     memset((uint8_t *)s + offsetof(WMAProDecodeCtx, pgb), 0,
+>            offsetof(WMAProDecodeCtx, channel) - offsetof(WMAProDecodeCtx, pgb));
+>     /* the channels a decode writes */
+>     for (i = 0; i < nb_channels; i++)
+>         memset(&s->channel[i], 0, sizeof(s->channel[i]));
+> 
+>     /* what decode_init sets among them */
+>     s->nb_channels = nb_channels;
+>     s->packet_loss = 1;
+>     for (i = 0; i < nb_channels; i++)
+>         s->channel[i].prev_block_len = s->samples_per_frame;
+2154a2198
+>     .flush          = xmaframes_flush,

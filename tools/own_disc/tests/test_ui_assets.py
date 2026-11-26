@@ -23,6 +23,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 import build_ui_assets  # noqa: E402
+import ui_music  # noqa: E402
 import ui_pictures  # noqa: E402
 import ui_sounds as u  # noqa: E402
 import ui_stage  # noqa: E402
@@ -131,6 +132,8 @@ class Stage(unittest.TestCase):
         self.assertEqual(stage['id'], ui_stage.STAGE_ID)
         self.assertEqual(set(stage['expect']), set(stage['outputs']) - {'tree', 'report'})
         self.assertIn('ui/manifest.txt', ui_stage.files())
+        argv = stage['argv']
+        self.assertEqual(set(argv[argv.index('--parts') + 1].split(',')), set(build_ui_assets.PARTS), 'it pins every file, so it asks for every part')
         for c in out['bundle']['components']:
             self.assertIsNone(disc_builder.role_problem(c['name'], c['role'], True), c['name'])
             self.assertEqual(stage['outputs'][c['output']], ui_stage.STAGE_ID + '/' + c['name'])
@@ -368,6 +371,160 @@ class Determinism(unittest.TestCase):
             ran += 1
         if not ran:
             self.skipTest('no other Python on this host')
+
+
+def music_tables(objects):
+    """A sounds.dat54 with the name table the disc's has between the data and the index (here empty)."""
+    data, index = b'', b''
+    for h, body in objects:
+        index += struct.pack('>III', h, len(data), len(body))
+        data += body
+    return struct.pack('>II', 54, len(data)) + data + struct.pack('>II', 4, 0) + struct.pack('>I', len(objects)) + index
+
+
+def simple(wave, pan, volume=0, container=None):
+    # header bits: 2 Volume, 6 Pan, 23 speaker mask (0: placed by its pan)
+    return bytes([12]) + struct.pack('>IhHB', 0x00800044, volume, pan, 0) + struct.pack('>IIB', container or ui_music.CONTAINER, wave, 0)
+
+
+def multitrack(kids, volume=0, pitch=0):
+    return bytes([13]) + struct.pack('>Ihh', 0x00000014, volume, pitch) + bytes([len(kids)]) + struct.pack('>%dI' % len(kids), *kids)
+
+
+def streaming(kids):
+    return bytes([8]) + struct.pack('>I', 0) + struct.pack('>iB', 2000, len(kids)) + struct.pack('>%dI' % len(kids), *kids)
+
+
+def music_bank(channels, blocks, rate=27937):
+    """A multichannel streamed AWC: channels [(id, samples, headroom)], blocks [[(packets, skip, count) per channel]]. Each
+    record's slot number runs one per channel ahead of where the packets lie (as in some of the disc's blocks); the per-packet
+    entries are the stream samples the packets start at."""
+    fmt = struct.pack('>III', len(blocks), 0, len(channels))
+    fmt += b''.join(struct.pack('>IIhHBBH', c, n, h, rate, 5, 0, 0) for c, n, h in channels)
+    body, done = [], [0] * len(channels)
+    for row in blocks:
+        head, entries, at = b'', b'', 0
+        for c, (packets, skip, count) in enumerate(row):
+            head += struct.pack('>iiii', at + c, len(packets) // 2048, skip, count)
+            pos = done[c] - skip
+            for i in range(0, len(packets), 2048):
+                entries += struct.pack('>I', pos)
+                pos += 512 * (packets[i] >> 2)
+            done[c] += count - skip
+            at += len(packets) // 2048
+        head += entries
+        body.append(head + b'\0' * (-len(head) % 2048) + b''.join(p for p, _, _ in row))
+    size = max(len(b) for b in body)
+    data = b''.join(b + b'\0' * (size - len(b)) for b in body)
+    fmt = fmt[:4] + struct.pack('>I', size) + fmt[8:]
+    head = b'TADA' + struct.pack('>HHII', 0xFF04, 1, 1, 0) + struct.pack('>I', 2 << 29)
+    fo = len(head) + 16
+    head += struct.pack('>QQ', (0x48 << 56) | (len(fmt) << 28) | fo, (0x55 << 56) | (len(data) << 28) | 2048)
+    head += fmt
+    return head + b'\0' * (2048 - len(head)) + data
+
+
+class Music(unittest.TestCase):
+    """The launcher music (ui_music.py, xma2_decode.decode_blocks) on synthetic tables and banks."""
+
+    def setUp(self):
+        self.t, data = synthetic_stream()
+        self.p0, self.p1 = data[:2048], data[2048:]          # two packets of two frames: 1024 samples each
+        self.whole = xma2_decode.decode(data, 2048, 27937, self.t)
+
+    def blocks(self, *rows):
+        return xma2_decode.decode_blocks(list(rows), 2048, 27937, self.t)
+
+    def test_blocks_decode_as_one_stream_with_the_repeated_packet_skipped(self):
+        # a boundary between packets: the second block continues the transform (a fresh decoder would fade its first half
+        # frame in from silence); a boundary inside the second packet: it is in both blocks, the second skips its first frame
+        self.assertEqual(list(self.blocks((self.p0, 0, 1024), (self.p1, 0, 1024))), self.whole)
+        self.assertEqual(list(self.blocks((self.p0 + self.p1, 0, 1536), (self.p1, 512, 1024))), self.whole)
+        with self.assertRaisesRegex(xma2_decode.XmaError, 'holds 2048 samples'):     # the first block keeps 1536, not its whole decode
+            xma2_decode.decode_blocks([(self.p0 + self.p1, 0, 1536), (self.p1, 512, 1024)], 2049, 27937, self.t)
+        for label, rows, needle in (
+                ('a skip after a block that ended on its count', [(self.p0, 0, 1024), (self.p1, 512, 1024)], 'skips 512'),
+                ('no skip after a block that decoded past its count', [(self.p0 + self.p1, 0, 1536), (self.p1, 0, 1024)], 'skips 0'),
+                ('a skip shorter than a frame', [(self.p0 + self.p1, 0, 1536), (self.p1, 256, 1024)], 'skips 256'),
+                ('a block that decodes short of its count', [(self.p0, 0, 1536), (self.p1, 0, 1024)], 'decodes to 1024')):
+            with self.subTest(label), self.assertRaisesRegex(xma2_decode.XmaError, needle):
+                self.blocks(*rows)
+
+    def test_the_stems_are_the_bank_s_streaming_sound_halves_placed_by_pan(self):
+        S, M1, M2, A, B, C, D = 0x50000001, 0x40000001, 0x40000002, 0x10000001, 0x10000002, 0x10000003, 0x10000004
+        objs = [(A, simple(0x01, 307, volume=-100)), (B, simple(0x02, 53)), (C, simple(0x03, 53)), (D, simple(0x04, 307)),
+                (M1, multitrack([A, B], volume=-200)), (M2, multitrack([C, D])), (S, streaming([M1, M2])),
+                (0x10000005, simple(0x05, 307, container=0x12345678)), (0x40000003, multitrack([0x10000005])),
+                (0x50000002, streaming([0x40000003]))]         # another bank's streaming sound is not the music
+        self.assertEqual(ui_music.stems(ui_music.objects(music_tables(objs))), [((0x01, -300), (0x02, -200)), ((0x04, 0), (0x03, 0))])
+        for label, change, needle in (
+                ('a half that is not panned left or right', {B: simple(0x02, 0)}, 'not one left'),
+                ('two left halves', {B: simple(0x02, 307)}, 'not one left'),
+                ('a pitched stem', {M2: multitrack([C, D], pitch=100)}, 'pitched'),
+                ('a second streaming sound of the bank', {0x50000003: streaming([M2])}, '2 streaming sounds')):
+            changed = [(h, change.get(h, o)) for h, o in objs] + [(h, o) for h, o in change.items() if h not in dict(objs)]
+            with self.subTest(label), self.assertRaisesRegex(u.SoundError, needle):
+                ui_music.stems(ui_music.objects(music_tables(changed)))
+
+    def test_the_mix_puts_each_half_on_its_side_at_the_bank_rate(self):
+        objs = [(0x10000001, simple(0x01, 53)), (0x10000002, simple(0x02, 307)), (0x40000001, multitrack([0x10000001, 0x10000002], volume=3000)),
+                (0x50000001, streaming([0x40000001]))]
+        rows = [[(self.p0 + self.p1, 0, 1536)] * 2, [(self.p1, 512, 1024)] * 2]
+        # the right half (wave 1) at -40 dB beside the left (headroom 4000 centi-dB): the sides differ by 100x
+        bank = music_bank([(0x01, 2000, 4000), (0x02, 2000, 0)], rows)
+        tables = music_tables(objs)
+        second = 2048 + struct.unpack_from('>I', bank, 40)[0] + 32           # block 1's first entry
+        moved = bank[:second] + struct.pack('>I', 1023) + bank[second + 4:]
+        with self.assertRaisesRegex(u.SoundError, 'block 1, channel 00000001: starts at sample 1023'):
+            ui_music.bank_layout(moved)
+        real = ui_music.xma2_decode.load_tables, ui_music.STEM, ui_music.STEMS
+        ui_music.xma2_decode.load_tables = lambda source: self.t   # the synthetic tables (workers get them with their job)
+        ui_music.STEM, ui_music.STEMS = 0, 1                      # the tree here holds one stem
+        try:
+            data = ui_music.render_music(tables, bank, None, workers=2)
+            with self.assertRaisesRegex(u.SoundError, 'same left and right'):
+                ui_music.render_music(tables, music_bank([(0x01, 2000, 0), (0x02, 2000, 0)], rows), None, workers=1)
+        finally:
+            ui_music.xma2_decode.load_tables, ui_music.STEM, ui_music.STEMS = real
+        channels, rate, _, _, bits = struct.unpack('<HIIHH', data[22:36])
+        self.assertEqual((data[:4], data[8:12], channels, rate, bits), (b'RIFF', b'WAVE', 2, 27937, 16))
+        frames = struct.unpack('<%dh' % ((len(data) - 44) // 2), data[44:])
+        left, right = frames[0::2], frames[1::2]
+        self.assertEqual(len(left), 2000, 'cut to the channels\' sample count')
+        self.assertEqual(max(map(abs, left)), round(10 ** (-1 / 20) * 32767), '+30 dB (the stream peaks near 0.09) scaled down as a whole to -1 dBFS')
+        loud = max(range(2000), key=lambda i: abs(left[i]))
+        self.assertAlmostEqual(right[loud] / left[loud], 0.01, delta=0.0002)
+        k = left[loud] / self.whole[loud]
+        self.assertLessEqual(max(abs(left[i] - k * self.whole[i]) for i in range(2000)), 2,
+                             'the left side is the decoded stream (its blocks joined, the repeat skipped) at one gain')
+
+
+    def test_only_the_chosen_stem_is_rendered_and_a_quiet_one_is_scaled_up_to_minus_one_dbfs(self):
+        # two stems: stem 0 has its right half 40 dB below its left (right/left 0.01); stem 1 has its right half 22 dB ABOVE its left
+        # (right/left 10^2.2). The launcher plays stem 1 alone, so the output's sides show stem 1's ratio, and the stem (peak near
+        # 0.05) is brought UP to -1 dBFS.
+        objs = [(0x10000001, simple(0x01, 53, volume=-4000)), (0x10000002, simple(0x02, 307)),
+                (0x10000003, simple(0x03, 53, volume=-600)), (0x10000004, simple(0x04, 307, volume=-5000)),
+                (0x40000001, multitrack([0x10000001, 0x10000002])), (0x40000002, multitrack([0x10000003, 0x10000004])),
+                (0x50000001, streaming([0x40000001, 0x40000002]))]
+        rows = [[(self.p0 + self.p1, 0, 1536)] * 4, [(self.p1, 512, 1024)] * 4]
+        bank = music_bank([(0x01, 2000, 0), (0x02, 2000, 0), (0x03, 2000, 0), (0x04, 2000, 0)], rows)
+        tables = music_tables(objs)
+        real = ui_music.xma2_decode.load_tables, ui_music.STEM, ui_music.STEMS
+        ui_music.xma2_decode.load_tables = lambda source: self.t
+        try:
+            ui_music.STEM, ui_music.STEMS = 1, 2
+            data = ui_music.render_music(tables, bank, None, workers=2)
+            ui_music.STEM, ui_music.STEMS = 1, 3                  # a tree of another size is not the one the choice was made on
+            with self.assertRaisesRegex(u.SoundError, 'holds 2 stems, not the 3'):
+                ui_music.render_music(tables, bank, None, workers=1)
+        finally:
+            ui_music.xma2_decode.load_tables, ui_music.STEM, ui_music.STEMS = real
+        frames = struct.unpack('<%dh' % ((len(data) - 44) // 2), data[44:])
+        left, right = frames[0::2], frames[1::2]
+        loud = max(range(2000), key=lambda i: abs(right[i]))
+        self.assertEqual(max(map(abs, right)), round(10 ** (-1 / 20) * 32767), 'the louder side peaks at -1 dBFS (scaled up)')
+        self.assertAlmostEqual(left[loud] / right[loud], 10 ** -2.2, delta=0.0005)
 
 
 if __name__ == '__main__':

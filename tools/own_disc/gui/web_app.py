@@ -1,6 +1,5 @@
 """FivePocket Builder: the window's local server. The window is web/index.html shown by the system's own browser
-engine (Windows: Microsoft Edge in app mode, which every Windows 10/11 has; macOS: the default browser; Linux: Edge, Chrome
-or Chromium in app mode when installed, else the default browser); this server
+engine (Windows: Microsoft Edge in app mode, which every Windows 10/11 has; macOS: the default browser); this server
 answers it on 127.0.0.1 only, with a random token, and holds the state. Every decision and every command is
 builder_core.py's: the same checks and the same builder commands the guided command line runs.
 
@@ -75,29 +74,7 @@ def choose_path(title: str, folder: bool, image_filter: bool = True) -> str | No
         script = f'POSIX path of (choose {kind} with prompt "{title}")'
         r = subprocess.run(['/usr/bin/osascript', '-e', script], capture_output=True, text=True)
         return r.stdout.strip() or None
-    if sys.platform.startswith('linux'):
-        return _linux_dialog(title, folder, image_filter)
     return None
-
-
-def _linux_dialog(title, folder, image_filter):
-    """Linux: the desktop's own open dialog through zenity (GNOME and most desktops) or kdialog (KDE); None when the player
-    cancels or neither is there (the disc images can then be named on the command line)."""
-    if shutil.which('zenity'):
-        argv = ['zenity', '--file-selection', f'--title={title}']
-        if folder:
-            argv.append('--directory')
-        elif image_filter:
-            argv += ['--file-filter=Xbox 360 disc image (*.iso) | *.iso *.ISO', '--file-filter=All files | *']
-    elif shutil.which('kdialog'):
-        start = str(Path.home())
-        argv = ['kdialog', '--title', title] + (['--getexistingdirectory', start] if folder else
-                                                ['--getopenfilename', start] + (['*.iso *.ISO|Xbox 360 disc image (*.iso)'] if image_filter else []))
-    else:
-        return None
-    r = subprocess.run(argv, capture_output=True, text=True)
-    path = (r.stdout or '').rstrip('\r\n')
-    return path if r.returncode == 0 and path else None
 
 
 def _windows_dialog(title, folder, image_filter):
@@ -158,16 +135,6 @@ def copy_text(text):
         subprocess.run(['clip'], input=text.encode('utf-16-le'), check=False)
     elif sys.platform == 'darwin':
         subprocess.run(['/usr/bin/pbcopy'], input=text.encode(), check=False)
-    elif sys.platform.startswith('linux'):
-        argv = linux_clipboard()
-        if argv:
-            subprocess.run(argv, input=text.encode(), check=False)
-
-
-def linux_clipboard():
-    """Linux: the clipboard program of this session (Wayland: wl-copy; X11: xclip or xsel), or None"""
-    choices = ([['wl-copy']] if os.environ.get('WAYLAND_DISPLAY') else []) + [['xclip', '-selection', 'clipboard'], ['xsel', '--clipboard', '--input']]
-    return next((argv for argv in choices if shutil.which(argv[0])), None)
 
 
 # -------------------------------------------------------------------------------------------------------- state
@@ -201,6 +168,8 @@ class AppState:
         self.stages = {}
         self.log = []                     # (step id, line)
         self.backdrop_dirs = backdrop_dirs if backdrop_dirs is not None else [WEB / 'backdrops']
+        self.extras = {'update': None, 'dlc': None}          # the player's own title update and DLC (paths)
+        self.extra_checks = {}                               # path -> (what it is, problems)
         self.settings_file = self.state_dir / 'gui-settings.json'
         self.settings = self._read_settings()
         self.frameless = False
@@ -304,7 +273,14 @@ class AppState:
         if any(self.fetched.get(str(e.release_path)) is None for e in self.selected()):
             raise core.PlanError('Checking the compilers already fetched…')
         return core.make_plan(self.selected(), self.discs, self.out, core.B.default_cache(), self.accepted,
-                              fetched={k: v for k, v in self.fetched.items() if v is not None})
+                              fetched={k: v for k, v in self.fetched.items() if v is not None}, app_icon=self.app_icon(),
+                              extras=self.taken_extras())
+
+    def taken_extras(self):
+        """the player's title update and DLC, each while a chosen edition takes it"""
+        sel = self.selected()
+        return {slot: p for slot, p in self.extras.items()
+                if p is not None and any((e.update if slot == 'update' else e.dlc) for e in sel)}
 
     def ready_problems(self):
         problems = [f'Choose {core.DISC_LABELS[s]} in the sidebar' for s in ('play', 'install') if not self.discs[s]]
@@ -312,6 +288,8 @@ class AppState:
             problems.append('Checking your discs…')
         problems += [f'{core.DISC_LABELS[s]}: {self.reports[s].problems[0]}' for s in ('play', 'install')
                      if self.reports[s] and not self.reports[s].ok]
+        problems += [f'{core.EXTRA_LABELS[slot]}: {self.extra_checks[str(p)][1][0]}' for slot, p in self.taken_extras().items()
+                     if self.extra_checks.get(str(p), ('', []))[1]]
         space = self.space(self.selected())
         if self.selected() and not space['enough']:              # the check step would refuse: say it before
             problems.append(f'Not enough free space: the build needs {space["required_text"]} on the drive of the builder folder, '
@@ -344,7 +322,8 @@ class AppState:
     def logos(self):
         """the player's own logo files in web/logos/, by edition and backdrop: a file whose name holds an edition word
         (thor, ios, android, duo) and, after it, a backdrop's name is shown for that edition on that backdrop; one with
-        the edition word alone, on every backdrop. {edition: {backdrop id or '*': 'logos/<file>'}}"""
+        the edition word alone, on every backdrop. An app-icon colourway's name counts as well (the app-icon pick's
+        previews). {edition: {backdrop id, colourway or '*': 'logos/<file>'}}"""
         found = {}
         folder = self.logo_dir / 'logos'
         if not folder.is_dir():
@@ -358,7 +337,7 @@ class AppState:
             if edition is None:
                 continue
             rest = '-'.join(words[words.index(edition) + 1:])
-            key = rest if rest in backdrop_ids else ('*' if not rest else None)
+            key = rest if rest in backdrop_ids or rest in core.APP_ICON_CHOICES else ('*' if not rest else None)
             if key is not None:
                 found.setdefault(edition, {})[key] = 'logos/' + urllib.parse.quote(p.name)
         return found
@@ -404,6 +383,14 @@ class AppState:
                     d.update(ok=False, problems=[], warnings=[])
                 discs[slot] = d
             sel = self.selected()
+            extras = []
+            for slot, label in core.EXTRA_LABELS.items():
+                p = self.extras[slot]
+                what, problems = self.extra_checks.get(str(p), ('', [])) if p else ('', [])
+                extras.append({'slot': slot, 'label': label, 'path': str(p) if p else '', 'name': p.name if p else '',
+                               'shown': any((e.update if slot == 'update' else e.dlc) for e in sel),
+                               'needed': any(e.update == 'needed' for e in sel) if slot == 'update' else False,
+                               'summary': what, 'problems': list(problems)})
             states = [self.fetched.get(str(e.release_path)) for e in sel]
             compilers = 'checking' if None in states else ('missing' if False in states else 'ready')
             session, failure = None, None
@@ -446,7 +433,7 @@ class AppState:
             chosen_bd = self.settings.get('backdrop') if any(b['id'] == self.settings.get('backdrop') for b in bds) else (bds[0]['id'] if bds else None)
             return {
                 'labels': dict(core.DISC_LABELS),
-                'discs': discs,
+                'discs': discs, 'extras': extras,
                 'editions': [{'ident': e.ident, 'key': e.key, 'label': e.label, 'short': short(e.label), 'kind': e.kind,
                               'available': e.available, 'reason': e.reason, 'chosen': bool(self.chosen.get(e.ident)),
                               'root': str(e.root) if e.root else '', 'problems': core.edition_problems(e) if e.available else [],
@@ -459,6 +446,7 @@ class AppState:
                 'ready_problems': self.ready_problems(), 'primary': self.primary(), 'running': self.runner is not None,
                 'session': session, 'outputs': outputs, 'log_file': str(self.state_dir / core.LOG_NAME),
                 'backdrops': [{k: b[k] for k in ('id', 'name', 'url')} for b in bds], 'backdrop': chosen_bd,
+                'app_icons': [{'id': c, 'name': core.APP_ICON_NAMES.get(c, c)} for c in core.APP_ICON_CHOICES], 'app_icon': self.app_icon(),
                 'frameless': self.frameless, 'failure': failure, 'space': self.space(sel),
                 'version_lines': self.version_lines(), 'logo': self.logo(), 'logos': self.logos(), 'button_art': self.button_art(),
             }
@@ -476,6 +464,22 @@ class AppState:
         path = self.choose(f'{core.DISC_LABELS[slot]}: ' + ('the extracted disc folder' if folder else 'your disc image'), folder)
         if path:
             self.put_disc(Path(path), slot)
+
+    def do_choose_extra(self, slot, folder=False):
+        if self.runner is not None or slot not in core.EXTRA_LABELS:
+            return
+        what = {('update', False): 'your title-update file', ('update', True): 'the folder of your title update\'s files',
+                ('dlc', True): 'the folder of your DLC packs', ('dlc', False): 'one DLC pack'}[(slot, bool(folder))]
+        path = self.choose(f'{core.EXTRA_LABELS[slot]}: {what}', bool(folder), False)
+        if path:
+            check = core.check_extra(slot, path)
+            with self.lock:
+                self.extras[slot] = Path(path)
+                self.extra_checks[str(Path(path))] = check
+
+    def do_clear_extra(self, slot):
+        if self.runner is None and slot in core.EXTRA_LABELS:
+            self.extras[slot] = None
 
     def do_hash_disc(self, slot):
         self.hash_disc(slot)
@@ -500,6 +504,16 @@ class AppState:
 
     def do_accept(self, value):
         self.accepted = bool(value)
+
+    def app_icon(self):
+        """the app icon the player picked (kept in the window's settings), else Pink/Blue Dusk"""
+        pick = self.settings.get('app_icon')
+        return pick if pick in core.APP_ICON_CHOICES else core.APP_ICON_DEFAULT
+
+    def do_set_app_icon(self, id):        # noqa: A002  the window's word
+        if id in core.APP_ICON_CHOICES:
+            self.settings['app_icon'] = id
+            self._write_settings()
 
     def do_set_backdrop(self, id):        # noqa: A002  the window's word
         if any(b['id'] == id for b in self.backdrops()):
@@ -725,40 +739,8 @@ def running_instance(state_dir: Path):
     return None
 
 
-LINUX_APP_BROWSERS = ('microsoft-edge', 'microsoft-edge-stable', 'google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser')
-
-
-def linux_app_browser():
-    """Linux: a Chromium-family browser that can show the window in app mode (as Edge does on Windows), or None"""
-    return next((shutil.which(name) for name in LINUX_APP_BROWSERS if shutil.which(name)), None)
-
-
-def show_window_linux(url, state_dir):
-    """Linux: Edge, Chrome or Chromium in app mode with its own profile (as Edge on Windows) when one is installed; the default
-    browser when none is, or when the one started ends at once with an error (a confined snap browser that may not use the
-    profile folder, for example)."""
-    browser = linux_app_browser()
-    if browser:
-        profile = state_dir / 'window-profile'
-        profile.mkdir(parents=True, exist_ok=True)
-        try:
-            process = subprocess.Popen([str(browser), f'--app={url}', '--window-size=1288,760', f'--user-data-dir={profile}',
-                                        '--no-first-run', '--no-default-browser-check', '--disable-extensions'])
-            try:
-                failed = process.wait(timeout=3) != 0
-            except subprocess.TimeoutExpired:
-                failed = False                                 # still running: the window is up
-        except OSError:
-            failed = True
-        if not failed:
-            return
-    webbrowser.open(url)
-
-
 def show_window(url, state_dir):
     """Edge in app mode (a window of its own, its own profile in the builder's private folder), else the browser"""
-    if sys.platform.startswith('linux'):
-        return show_window_linux(url, state_dir)
     edge = edge_path() if os.name == 'nt' else None
     if edge:
         profile = state_dir / 'window-profile'

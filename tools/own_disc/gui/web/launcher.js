@@ -47,6 +47,7 @@ function icon(kind, st) {
     fold: `<rect x="9" y="3" width="12" height="24" rx="2" fill="${fill}" stroke="${c}" stroke-width="2"/>`,
     ios: `<rect x="5" y="4" width="20" height="22" rx="2.5" fill="${fill}" stroke="${c}" stroke-width="2"/>`,
     duo: `<rect x="3" y="7" width="11" height="16" rx="2" fill="${fill}" stroke="${c}" stroke-width="2"/><rect x="16" y="7" width="11" height="16" rx="2" fill="${fill}" stroke="${c}" stroke-width="2"/>`,
+    extra: `<rect x="7" y="3" width="16" height="24" rx="2" fill="none" stroke="${c}" stroke-width="2"/><path d="M11 10h8M11 15h8M11 20h5" stroke="${c}" stroke-width="2"/>`,
   }[kind] || '';
   const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   s.setAttribute('viewBox', '0 0 30 30'); s.setAttribute('width', '30'); s.setAttribute('height', '30');
@@ -85,6 +86,14 @@ function renderHomeSide() {
     discs.append(item(slot, 'disc', st, state.labels[slot], sub, y));
     y += 50;
   }
+  // the player's own title update and DLC (next update): shown while a chosen edition takes them
+  for (const x of state.extras || []) {
+    if (!x.shown) continue;
+    const st = !x.path ? 'empty' : (x.problems.length ? 'bad' : 'ok');
+    const sub = !x.path ? (x.needed ? 'Needed: choose your file' : 'Optional: choose your files') : (x.problems[0] || x.name);
+    discs.append(item(x.slot, 'extra', st, x.label, sub, y));
+    y += 50;
+  }
   $('head-editions').style.top = (y - 50 + 41 - 2) + 'px';
   y += 36;
   const twice = (e) => state.editions.filter((x) => x.shown && x.key === e.key).length > 1;
@@ -109,7 +118,10 @@ function item(key, kind, st, title, sub, y) {
 
 function pick(key, kind) {
   if (kind === 'disc' && !state.discs[key]) { detail = key; act('choose_disc', { slot: key }); return; }
-  if (kind !== 'disc' && detail === key) {
+  if (kind === 'extra' && !((state.extras || []).find((x) => x.slot === key) || {}).path) {
+    detail = key; act('choose_extra', { slot: key, folder: key === 'dlc' }); return;
+  }
+  if (kind !== 'disc' && kind !== 'extra' && detail === key) {
     const e = state.editions.find((x) => x.ident === key);
     if (e && e.available && !state.running) { act('toggle_edition', { ident: key }); return; }
   }
@@ -149,6 +161,9 @@ function render() {
 
 // the logo's second line: the edition(s) the BUILD button makes, by the names the maintainer gave them
 const EDITION_WORD = { thor: 'THOR', fold: 'ANDROID', ios: 'iOS', duo: 'DUO' };
+// the editions' words in the owner's logo file names (five-pocket-<word>-<colourway>.png)
+const LOGO_WORD = { thor: 'thor', fold: 'android', ios: 'ios', duo: 'duo' };
+const firstChosen = () => state.editions.find((e) => e.available && e.chosen);
 
 function renderBuild() {
   const words = [...new Set(state.editions.filter((e) => e.available && e.chosen).map((e) => EDITION_WORD[e.key] || e.key.toUpperCase()))];
@@ -161,8 +176,7 @@ function renderBuild() {
   }
   // a logo file of the player's replaces the drawn lettering: the one for the chosen edition on the chosen backdrop,
   // else that edition's on any backdrop, else web/logo.*
-  const LOGO_WORD = { thor: 'thor', fold: 'android', ios: 'ios', duo: 'duo' };
-  const first = state.editions.find((e) => e.available && e.chosen);
+  const first = firstChosen();
   const mine = first && state.logos ? state.logos[LOGO_WORD[first.key]] : null;
   const src = (mine && (mine[state.backdrop] || mine['*'])) || state.logo || null;
   const logo = $('logo-file');
@@ -251,6 +265,22 @@ function renderDetail() {
       small('Choose', () => act('choose_disc', { slot: detail }), 'white', !state.running),
       small('Folder', () => act('choose_disc', { slot: detail, folder: true }), '', !state.running),
       small('SHA-256', () => act('hash_disc', { slot: detail }), '', !!(d && d.is_file && !d.sha256 && !d.hashing))));
+    return;
+  }
+  const x = (state.extras || []).find((v) => v.slot === detail);
+  if (x) {
+    const dlc = x.slot === 'dlc';
+    b.append(el('h4', { text: x.label }));
+    b.append(desc(dlc
+      ? 'Your own DLC packs, as they came off your console: a folder of them, or one pack. Each is read through and checked when the build starts, and your bundle carries them for the app.'
+      : 'Your own title-update file (the package your console downloaded), or a folder of its files. The build patches your disc\u2019s game with it.'));
+    if (x.path) b.append(mono(x.path));
+    if (x.summary) b.append(desc(x.summary, 'ok'));
+    for (const pr of x.problems) b.append(desc(pr, 'bad'));
+    b.append(el('div', { class: 'detail-actions' },
+      small(dlc ? 'Folder' : 'Choose', () => act('choose_extra', { slot: x.slot, folder: dlc }), 'white', !state.running),
+      small(dlc ? 'One pack' : 'Folder', () => act('choose_extra', { slot: x.slot, folder: !dlc }), '', !state.running),
+      small('Remove', () => act('clear_extra', { slot: x.slot }), '', !!x.path && !state.running)));
     return;
   }
   const e = state.editions.find((x) => x.ident === detail);
@@ -349,6 +379,21 @@ function renderSettings() {
     rows.append(el('div', { class: 'row short' }, el('div', { class: 'thumbs' }, ...state.backdrops.map((b) =>
       el('div', { class: 'thumb' + (b.id === state.backdrop ? ' on' : ''), title: b.name, style: `background-image:url("${b.thumb || b.url}")`,
                   onclick: () => act('set_backdrop', { id: b.id }) })))));
+    // the app icon (owner 2026-11-22): the logo of the edition being built, in the colourway picked here; each build passes it
+    const icons = state.app_icons || [];
+    const picked = icons.find((c) => c.id === state.app_icon) || icons[0];
+    const iconSelect = el('div', { class: 'select' }, el('span', { text: picked ? picked.name : '' }));
+    iconSelect.insertAdjacentHTML('beforeend', '<svg viewBox="0 0 12 7" width="12" height="7"><path d="M1 1l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>');
+    const iconChoice = el('select', { 'aria-label': 'App icon' }, ...icons.map((c) => el('option', { value: c.id, text: c.name })));
+    iconChoice.value = state.app_icon || '';
+    iconChoice.addEventListener('change', () => act('set_app_icon', { id: iconChoice.value }));
+    iconSelect.append(iconChoice);
+    rows.append(row('App icon', 'The logo your app shows on the home screen. Every app or bundle you build gets this icon.', [iconSelect]));
+    const previews = ((state.logos || {})[LOGO_WORD[(firstChosen() || {}).key]]) || {};
+    rows.append(el('div', { class: 'row short' }, el('div', { class: 'thumbs' }, ...icons.map((c) =>
+      el('div', { class: 'thumb icon' + (c.id === state.app_icon ? ' on' : ''), title: c.name, text: previews[c.id] ? '' : c.name,
+                  style: previews[c.id] ? `background-image:url("${previews[c.id]}")` : null,
+                  onclick: () => act('set_app_icon', { id: c.id }) })))));
     rows.append(row('Output folder', [mono(state.out), ...state.out_problems.map((p) => desc(p, 'bad')),
       desc('Where the finished bundle or app is written. The work files stay in each builder package’s local-analysis folder; an interrupted build continues from them.')],
       [pill('Default', () => act('default_out'), '', state.out_custom && !state.running), pill('Browse', () => act('choose_out'), '', !state.running)]));
@@ -407,6 +452,11 @@ function renderBuildDialog() {
       el('div', {}, document.createTextNode(e.short), el('small', { text: e.available ? (e.kind === 'bundle' ? 'Code bundle for the Android app' : 'Unsigned iOS app') : (e.reason ? 'Made ' + e.reason : 'Not on this computer') })),
       box(e.chosen && e.available, () => act('toggle_edition', { ident: e.ident }), e.available));
     opts.append(o);
+  }
+  const icon = (state.app_icons || []).find((c) => c.id === state.app_icon);
+  if (icon) {
+    opts.append(el('div', { class: 'option on' },
+      el('div', {}, document.createTextNode('App icon: ' + icon.name), el('small', { text: 'The logo your app shows (SETTINGS › General)' }))));
   }
   if (state.compilers === 'missing') {
     opts.append(el('div', { class: 'option' + (state.accepted ? ' on' : '') },

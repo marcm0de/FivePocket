@@ -23,6 +23,8 @@ import struct
 import sys
 import tempfile
 import unittest
+import unittest.mock
+import zipfile
 import zlib
 from pathlib import Path
 
@@ -561,6 +563,9 @@ class Plan(Base):
             ('stage named bundle', lambda p: p['stages'][4].update(id='bundle'), '"bundle" is reserved'),
             ('no games', lambda p: p.update(games=[]), 'no games table'),
             ('game without a full hash', lambda p: p['games'][0].update(executable_sha256='0123456789ab'), '64 hex digits'),
+            ('title update that names no patched executable', lambda p: p['games'][0].update(
+                title_update={'label': 'Update 2', 'files': [{'path': 'a.xexp', 'size': 1, 'sha256': 'ab' * 32}]}),
+             "a game's title_update needs a label, executable_sha256"),
         )
         self.assertEqual(len(stages), 5)
         for label, change, needle in cases:
@@ -999,6 +1004,8 @@ class BundleFormat2(Base):
              'not a launcher file the app reads'),
             ('a folder inside ui/', lambda b: b['components'].append({'name': 'ui/more/a.png', 'role': 'ui-asset', 'stage': 'catalog', 'output': 'out'}),
              'not a launcher file the app reads'),
+            ('a folder inside ui/music/', lambda b: b['components'].append({'name': 'ui/music/more/a.wav', 'role': 'ui-asset', 'stage': 'catalog',
+                                                                          'output': 'out'}), 'not a launcher file the app reads'),
         )
         for label, change, needle in cases:
             with self.subTest(label):
@@ -1147,6 +1154,23 @@ class Bundle(Base):
         del manifest['_seal']
         self.assertEqual(raw_bundle(self.entries(manifest)), self.good)
 
+    def test_a_bundle_past_pythons_signed_zip_limit_is_still_the_documented_layout(self):
+        # Python's zipfile stops a ZIP without ZIP64 at 2 GiB (ZIP64_LIMIT); the format allows unsigned 32-bit fields below
+        # 4 GiB (a title-update bundle with the player's DLC is 2.48 GB). Simulated with the limit at 64 bytes: the writer
+        # still writes this very file, and leaves zipfile's limit as it found it.
+        from unittest import mock
+        manifest = db.verify_bundle(self.path)
+        del manifest['_seal']
+        sources = {}
+        for name, data in self.sources.items():
+            sources[name] = self.fx.tmp / 'src' / name
+            sources[name].parent.mkdir(parents=True, exist_ok=True)
+            sources[name].write_bytes(data)
+        with mock.patch.object(zipfile, 'ZIP64_LIMIT', 64):
+            db.write_bundle(self.probe, manifest, sources)
+            self.assertEqual(zipfile.ZIP64_LIMIT, 64)
+        self.assertEqual(self.probe.read_bytes(), self.good)
+
     def test_every_single_flipped_byte_is_detected(self):
         undetected = []
         for pos in range(len(self.good)):
@@ -1267,6 +1291,401 @@ class Bundle(Base):
         self.assertIn(self.good[-64:].decode(), text)                    # the seal, in full, for comparison on the phone
         self.path.write_bytes(self.good[:100] + b'\xff' + self.good[101:])
         self.assertEqual(run_main(['verify', str(self.path)])[0], db.EXIT_BUNDLE)
+
+
+def sha(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def stfs_package(path: Path, *, magic=b'LIVE', content_type=0x000B0000, metadata_version=0) -> bytes:
+    """A synthetic title-update package: the STFS fixture of stfs_inventory's own tests (one file, default.xexp, at the
+    root, hash tree consistent) with the header fields of a title update. Returns the file's content."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'host_guest_trace' / 'tests'))
+    from test_stfs_inventory import fixture
+    fixture(path, 3, (1, 2), name=b'default.xexp')
+    data = bytearray(path.read_bytes())
+    data[:4] = magic                                        # (the header is not covered by the hash tree)
+    struct.pack_into('>II', data, 0x344, content_type, metadata_version)
+    path.write_bytes(bytes(data))
+    return (b'\x01' * 4096 + b'\x02' * 4096)[:-3]          # the fixture's file: two blocks, three bytes short
+
+
+class TitleUpdate(Base):
+    """The player's own title update: identified by the files the profile lists, read as the disc named update, and a
+    bundle that names the patched executable it carries (the app requires its title-xex to be the manifest's)."""
+
+    def use_update(self, xexp: bytes, path: str = 'disc002/default.xexp') -> str:
+        """The profile of a game with a title update whose listed file is xexp at path; a stage copies it out of the
+        update, a fake patcher (the fixture's step tool) makes the executable, the rest of the pipeline reads that.
+        Returns the patched executable's SHA-256."""
+        fx = self.fx
+        patched = hashlib.sha256(b'patch')                  # the step tool's output: its name and inputs, hashed
+        patched.update(XEX)
+        patched.update(xexp)
+        text = (patched.hexdigest() + ' patch').encode()
+        fx.profile['games'][0]['title_update'] = {
+            'label': 'Fake update 2', 'files': [{'path': path, 'size': len(xexp), 'sha256': sha(xexp)}],
+            'executable_sha256': sha(text), 'executable_size': len(text)}
+        fx.profile['stages'][1:2] = [
+            {'id': 'patch-file', 'adapter': 'disc-file', 'disc': 'update', 'path': path, 'outputs': {'xexp': 'update/default.xexp'}},
+            dict(fx.command('patch', 'file', 'patched/default.xex', ['${out:extract:xex}', '${out:patch-file:xexp}']),
+                 expect={'out': '${game:title_update.executable_sha256}'}),
+            fx.command('decode', 'file', 'decode/image.bin', ['${out:patch:out}']),
+        ]
+        fx.profile['bundle']['components'][1].update(stage='patch', output='out')       # title.xex: the patched one
+        return sha(text)
+
+    def update_folder(self, xexp: bytes, path: str = 'disc002/default.xexp') -> Path:
+        folder = self.fx.tmp / 'update-folder'
+        (folder / path).parent.mkdir(parents=True, exist_ok=True)
+        (folder / path).write_bytes(xexp)
+        (folder / 'disc002' / 'update.rpf').parent.mkdir(parents=True, exist_ok=True)
+        (folder / 'disc002' / 'update.rpf').write_bytes(b'archive')
+        return folder
+
+    def test_the_bundle_names_the_patched_executable_and_the_disc_one_beside_it(self):
+        xexp = b'FAKE-DELTA-PATCH-' + bytes(range(256)) * 2
+        patched = self.use_update(xexp)
+        code, text, report = self.fx.run('--title-update', str(self.update_folder(xexp)))
+        self.assertEqual(code, 0, text)
+        self.assertEqual(self.fx.executed(), ['patch', 'decode', 'codegen', 'link'])
+        self.assertIn('Title update: Fake update 2', text)
+        manifest = db.verify_bundle(self.fx.bundle(), patched)
+        self.assertEqual(manifest['game'], {'id': 'fake-game', 'executable_sha256': patched,
+                                            'executable_size': self.fx.profile['games'][0]['title_update']['executable_size'],
+                                            'base_executable_sha256': sha(XEX)})
+        self.assertEqual({c['name']: c['sha256'] for c in manifest['components']}['title.xex'], patched)
+        self.assertEqual(report['game']['title_update'], {'label': 'Fake update 2', 'executable_sha256': patched})
+
+    def test_the_package_file_and_its_unpacked_folder_give_the_same_bundle(self):
+        package = self.fx.tmp / 'tu00000002_00000000'
+        xexp = stfs_package(package)
+        self.use_update(xexp, 'default.xexp')
+        bundles = []
+        for update in (self.update_folder(xexp, 'default.xexp'), package):
+            with self.subTest(str(update.name)):
+                self.fx.work = self.fx.tmp / f'work-{update.name}'
+                code, text, _ = self.fx.run('--title-update', str(update))
+                self.assertEqual(code, 0, text)
+                bundles.append(self.fx.bundle().read_bytes())
+        self.assertEqual(bundles[0], bundles[1])
+
+    def test_identify_command_names_the_update(self):
+        xexp = b'patch bytes'
+        patched = self.use_update(xexp)
+        self.fx.profile_path.write_text(json.dumps(self.fx.profile))
+        code, text = run_main(['identify', '--profile', str(self.fx.profile_path), '--play-disc', str(self.fx.disc),
+                               '--title-update', str(self.update_folder(xexp))])
+        self.assertEqual(code, 0, text)
+        self.assertIn(f'with Fake update 2: patched executable {patched[:12]}', text)
+
+    def test_a_build_for_the_updated_game_needs_the_update(self):
+        self.use_update(b'patch bytes')
+        self.assert_refused_before_any_work(db.EXIT_USAGE, 'title update (Fake update 2): give your own title-update file')
+
+    def test_another_update_is_refused_before_any_work(self):
+        xexp = b'patch bytes'
+        self.use_update(xexp)
+        cases = (('one byte differs', lambda f: (f / 'disc002/default.xexp').write_bytes(b'patch bytez'), 'has another SHA-256'),
+                 ('another size', lambda f: (f / 'disc002/default.xexp').write_bytes(b'patch'), 'has 5 bytes, not 11'),
+                 ('the file is missing', lambda f: (f / 'disc002/default.xexp').unlink(), 'it holds no disc002/default.xexp'))
+        for label, change, needle in cases:
+            with self.subTest(label):
+                folder = self.update_folder(xexp)
+                change(folder)
+                code, text, _ = self.fx.run('--title-update', str(folder))
+                self.assertEqual(code, db.EXIT_GAME, text)
+                self.assertIn(needle, text)
+                self.assertIn('This build supports only: Fake update 2.', text)
+                self.assertEqual(self.fx.executed(), [])
+                self.assertFalse(self.fx.work.exists(), 'the work directory was created')
+
+    def test_a_build_without_an_update_refuses_one(self):
+        self.assert_refused_before_any_work(db.EXIT_USAGE, 'This build takes no title update',
+                                            '--title-update', str(self.update_folder(b'patch bytes')))
+
+    def test_a_package_that_is_no_title_update_or_is_damaged_is_refused(self):
+        package = self.fx.tmp / 'package'
+        damaged = lambda: package.write_bytes(package.read_bytes()[:-5] + b'\xff' + package.read_bytes()[-4:])  # in the file's last block
+        cases = (('marketplace content', dict(magic=b'PIRS', content_type=2, metadata_version=2), None, 'not a LIVE package'),
+                 ('a LIVE package of another kind', dict(content_type=2), None, 'not a title update (content type)'),
+                 ('an unknown metadata version', dict(metadata_version=3), None, 'unsupported package metadata version'),
+                 ('a damaged block', {}, damaged, 'STFS data hash consistency failure'))
+        for label, fields, change, needle in cases:
+            saved = copy.deepcopy(self.fx.profile)
+            try:
+                with self.subTest(label):
+                    xexp = stfs_package(package, **fields)
+                    self.use_update(xexp, 'default.xexp')
+                    if change:
+                        change()
+                    self.assert_refused_before_any_work(db.EXIT_GAME, needle, '--title-update', str(package))
+            finally:
+                self.fx.profile = saved
+
+
+
+class DlcPacks(Base):
+    """The player's own DLC packs (--dlc) in a format-2 bundle, each as it is, and the title update's data archive as its own
+    role: what the app installs where the TU line's runtime reads them. Synthetic packs (stfs_inventory's test fixture)."""
+    second = BundleFormat2.second
+
+    def setUp(self):
+        super().setUp()
+        self.second()
+        self.fx.profile['games'][0]['dlc'] = {'title_id': '12345678'}            # the fixture's title
+        self.folder = self.fx.tmp / 'my dlc'
+        self.folder.mkdir()
+
+    def pack(self, name, folder=None, **fields):
+        path = (folder or self.folder) / name
+        stfs_package(path, **dict(dict(content_type=2, metadata_version=2), **fields))
+        return path
+
+    def test_packs_travel_as_they_are_and_a_build_without_them_carries_none(self):
+        live, pirs = self.pack('0DCED20CA9F9EFD34E2B4B9E0460FFC72A21DA8554'), self.pack('a0483655', magic=b'PIRS')
+        (self.folder / 'DLC-INDEX.txt').write_text('an index the player keeps beside the packs')
+        code, text, report = self.fx.run('--dlc', str(self.folder))
+        self.assertEqual(code, 0, text)
+        manifest = db.verify_bundle(self.fx.bundle())
+        dlc = {c['name']: c for c in manifest['components'] if c['role'] == 'dlc-package'}
+        self.assertEqual(sorted(dlc), ['dlc/0dced20ca9f9efd34e2b4b9e0460ffc72a21da8554', 'dlc/a0483655'])
+        for name, path in (('dlc/0dced20ca9f9efd34e2b4b9e0460ffc72a21da8554', live), ('dlc/a0483655', pirs)):
+            self.assertEqual((dlc[name]['size'], dlc[name]['sha256'], dlc[name]['provenance']),
+                             (path.stat().st_size, hashlib.sha256(path.read_bytes()).hexdigest(), 'player-file'))
+        with zipfile.ZipFile(self.fx.bundle()) as z:
+            self.assertEqual(z.read('dlc/a0483655'), pirs.read_bytes())
+        self.assertEqual([d['name'] for d in report['dlc']], sorted(dlc_name[4:] for dlc_name in dlc))
+        code, text, report = self.fx.run()
+        self.assertEqual(code, 0, text)
+        self.assertFalse(any(c['role'] == 'dlc-package' for c in db.verify_bundle(self.fx.bundle())['components']))
+        self.assertEqual(set(self.fx.actions(report).values()), {'skipped'})        # packs are no stage input
+
+    def test_packs_that_are_not_the_players_dlc_for_this_game_are_refused_before_any_work(self):
+        other = self.fx.tmp / 'other'
+        other.mkdir()
+        folder = str(self.folder)
+
+        def damaged(path):
+            data = path.read_bytes()
+            path.write_bytes(data[:-5] + b'\xff' + data[-4:])
+
+        def format_one():
+            self.pack('abc')
+            bundle = self.fx.profile['bundle']
+            bundle.update(format=1)
+            bundle['components'] = [c for c in bundle['components'] if c['role'] != 'runtime-data']
+        cases = (
+            ('a profile that takes none', lambda: (self.pack('abc'), self.fx.profile['games'][0].pop('dlc')), [folder],
+             db.EXIT_USAGE, 'takes no DLC packs'),
+            ('a title update given as a pack', lambda: self.pack('abc', content_type=0x000B0000, metadata_version=0), [folder],
+             db.EXIT_GAME, 'not a DLC pack (content type)'),
+            ('a damaged block', lambda: damaged(self.pack('abc')), [folder], db.EXIT_GAME, 'STFS data hash consistency failure'),
+            ('a file renamed by hand', lambda: self.pack('my pack.bin'), [str(self.folder / 'my pack.bin')], db.EXIT_USAGE,
+             'keeps the name the console gave it'),
+            ('an empty folder', lambda: None, [folder], db.EXIT_USAGE, 'holds no DLC pack'),
+            ('two packs of one name', lambda: (self.pack('ABC'), self.pack('abc', folder=other)), [folder, str(other)], db.EXIT_USAGE,
+             'two DLC packs are named'),
+            ('more than the app takes', lambda: [(self.folder / f'p{i}').write_bytes(b'x') for i in range(61)], [folder], db.EXIT_USAGE,
+             'the app takes at most 60'),
+            ('a format-1 profile', format_one, [folder], db.EXIT_USAGE, 'only in a format-2'),
+            ('a path that is not there', lambda: None, [str(self.fx.tmp / 'nowhere')], db.EXIT_USAGE, 'DLC not found'))
+        for label, make, paths, code_wanted, needle in cases:
+            saved = copy.deepcopy(self.fx.profile)
+            try:
+                with self.subTest(label):
+                    make()
+                    self.assert_refused_before_any_work(code_wanted, needle, *[w for path in paths for w in ('--dlc', path)])
+            finally:
+                self.fx.profile = saved
+                for f in list(self.folder.iterdir()) + list(other.iterdir()):
+                    f.unlink()
+
+    def test_a_pack_of_another_game_is_refused(self):
+        path = self.pack('abc')
+        data = bytearray(path.read_bytes())
+        struct.pack_into('>I', data, 0x360, 0x545408A7)
+        path.write_bytes(bytes(data))
+        self.assert_refused_before_any_work(db.EXIT_GAME, 'a DLC pack of another game (title 545408A7, not 12345678)', '--dlc', str(path))
+
+    def test_the_title_updates_archive_and_the_packs_keep_their_own_names_and_roles(self):
+        self.fx.profile['stages'].append(self.fx.command('archive', 'file', 'update/update.rpf', ['${out:extract:xex}']))
+        self.fx.profile['bundle']['components'].append({'name': 'update/update.rpf', 'role': 'title-update-data',
+                                                        'stage': 'archive', 'output': 'out'})
+        self.pack('abc')
+        code, text, _ = self.fx.run('--dlc', str(self.folder))
+        self.assertEqual(code, 0, text)
+        good = db.verify_bundle(self.fx.bundle())
+        self.assertEqual({c['name']: c['role'] for c in good['components'] if c['role'] in ('title-update-data', 'dlc-package')},
+                         {'update/update.rpf': 'title-update-data', 'dlc/abc': 'dlc-package'})
+        del good['_seal']
+        with zipfile.ZipFile(self.fx.bundle()) as z:
+            sources = {n: z.read(n) for n in z.namelist() if n != 'manifest.json'}
+        probe = self.fx.tmp / 'probe.bundle'
+
+        def check(change, renamed=None):
+            manifest = copy.deepcopy(good)
+            change(manifest)
+            names = dict(renamed or {})
+            for c in manifest['components']:
+                c['name'] = names.get(c['name'], c['name'])
+            probe.write_bytes(raw_bundle([{'name': 'manifest.json', 'data': manifest_bytes(manifest)}] +
+                                         [{'name': names.get(n, n), 'data': d} for n, d in sorted(sources.items(), key=lambda kv: names.get(kv[0], kv[0]))]))
+            return db.verify_bundle(probe)
+
+        def component(m, name):
+            return next(c for c in m['components'] if c['name'] == name)
+        self.assertIn('dlc/abc', [c['name'] for c in check(lambda m: None)['components']])     # the unchanged file reads
+        cases = (('a pack outside dlc/', lambda m: None, {'dlc/abc': 'packs/abc'}, 'are named under dlc/'),
+                 ('another role under dlc/', lambda m: component(m, 'dlc/abc').update(role='runtime-data'), None, 'are named under dlc/'),
+                 ('an upper-case pack name', lambda m: None, {'dlc/abc': 'dlc/ABC'}, 'not allowed'),
+                 ('the archive under another name', lambda m: None, {'update/update.rpf': 'update/other.rpf'}, 'is named update/update.rpf'),
+                 ('a format-1 bundle with these parts', lambda m: m.update(schema='gta5-code-bundle/1'), None, 'has the unknown role'))
+        for label, change, renamed, needle in cases:
+            with self.subTest(label), self.assertRaises(db.BuilderError) as cm:
+                check(change, renamed)
+            self.assertIn(needle, str(cm.exception))
+
+
+class AppIcon(unittest.TestCase):
+    """${appicon}: the iOS / Duo icon the player picked in the Mac builder (BUILDER_APP_ICON), else the profile's default"""
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.tmp = Path(self._tmp.name).resolve()
+        self.files = {}
+        for name in ('golden-sunset', 'peach-rose'):
+            p = self.tmp / f'ios-{name}-1024.png'
+            p.write_bytes(name.encode() * 10)
+            self.files[name] = p
+        self.icons = {'default': 'golden-sunset', 'choices': {n: {'path': '${repo}/' + p.name, 'sha256': hashlib.sha256(p.read_bytes()).hexdigest()}
+                                                             for n, p in self.files.items()}}
+        self.profile_path = self.tmp / 'profile.json'
+
+    def context(self, icons):
+        profile = {'schema': db.PROFILE_SCHEMA, 'games': [{'executable_sha256': '0' * 64}], 'stages': [], 'app_icons': icons}
+        self.profile_path.write_text(json.dumps(profile))
+        return db.Context(db.load_profile(self.profile_path), self.tmp / 'work', repo=self.tmp)
+
+    def expand(self, ctx, pick):
+        env = {k: v for k, v in os.environ.items() if k != 'BUILDER_APP_ICON'}
+        if pick is not None:
+            env['BUILDER_APP_ICON'] = pick
+        with unittest.mock.patch.dict(os.environ, env, clear=True):
+            return ctx.expand('${appicon}')
+
+    def test_the_pick_names_its_own_file_and_no_pick_is_the_default(self):
+        ctx = self.context(self.icons)
+        self.assertEqual(self.expand(ctx, 'peach-rose'), str(self.files['peach-rose']))
+        self.assertEqual(self.expand(ctx, None), str(self.files['golden-sunset']))
+        self.assertEqual(self.expand(ctx, ''), str(self.files['golden-sunset']))
+
+    def test_an_unknown_pick_is_refused_not_replaced(self):
+        with self.assertRaises(db.BuilderError) as e:
+            self.expand(self.context(self.icons), 'pink-blue-dusk')
+        self.assertEqual(e.exception.code, db.EXIT_USAGE)
+        self.assertIn('golden-sunset, peach-rose', str(e.exception))
+
+    def test_a_file_that_is_not_the_pinned_one_is_refused(self):
+        self.files['peach-rose'].write_bytes(b'another picture')
+        with self.assertRaises(db.BuilderError) as e:
+            self.expand(self.context(self.icons), 'peach-rose')
+        self.assertEqual(e.exception.code, db.EXIT_PREREQ)
+        self.assertIn('not the pinned file', str(e.exception))
+
+    def test_malformed_choices_are_refused_when_the_profile_is_read(self):
+        bad = [{'choices': self.icons['choices']},                                    # no default
+               {'default': 'pink-blue-dusk', 'choices': self.icons['choices']},       # default not a choice
+               {'default': 'Golden', 'choices': {'Golden': self.icons['choices']['golden-sunset']}},  # id form
+               {'default': 'golden-sunset', 'choices': {'golden-sunset': {'path': 'x.png', 'sha256': 'abc'}}}]
+        for icons in bad:
+            with self.subTest(icons=icons), self.assertRaises(db.BuilderError):
+                self.context(icons)
+
+    def test_a_profile_without_choices_refuses_the_variable(self):
+        profile = {'schema': db.PROFILE_SCHEMA, 'games': [{'executable_sha256': '0' * 64}], 'stages': []}
+        self.profile_path.write_text(json.dumps(profile))
+        ctx = db.Context(db.load_profile(self.profile_path), self.tmp / 'work', repo=self.tmp)
+        with self.assertRaises(db.BuilderError):
+            ctx.expand('${appicon}')
+
+
+
+class AppIconInBundle(Base):
+    """The app icon the player chose (builder build --app-icon: BUILDER_APP_ICON, BUILDER_APP_EDITION) in the manifest as
+    "app_icon": "<edition>-<colourway>", the key the Android app reads on import; no choice, no key"""
+    second = BundleFormat2.second
+
+    def run_with(self, colourway=None, edition=None):
+        env = {k: v for k, v in os.environ.items() if k not in ('BUILDER_APP_ICON', 'BUILDER_APP_EDITION')}
+        env.update({k: v for k, v in (('BUILDER_APP_ICON', colourway), ('BUILDER_APP_EDITION', edition)) if v is not None})
+        with unittest.mock.patch.dict(os.environ, env, clear=True):
+            return self.fx.run()
+
+    def test_each_edition_and_colourway_is_named_and_only_the_bundle_is_rewritten(self):
+        self.second()
+        code, text, _ = self.run_with()
+        self.assertEqual(code, 0, text)
+        seen = set()
+        for edition in ('thor', 'android', 'ios', 'duo'):
+            for colourway in ('pink-blue-dusk', 'golden-sunset', 'peach-rose'):
+                with self.subTest(edition=edition, colourway=colourway):
+                    code, text, report = self.run_with(colourway, edition)
+                    self.assertEqual(code, 0, text)
+                    self.assertEqual(set(self.fx.actions(report).values()), {'skipped'})   # a new pick runs no stage
+                    manifest = db.verify_bundle(self.fx.bundle(), hashlib.sha256(XEX).hexdigest())
+                    self.assertEqual(manifest['app_icon'], f'{edition}-{colourway}')
+                    self.assertEqual(report['app_icon'], f'{edition}-{colourway}')
+                    seen.add(manifest['_seal'])
+        self.assertEqual(len(seen), 12)
+
+    def test_no_choice_writes_the_same_file_as_a_build_without_one(self):
+        for fmt in (2, 1):
+            with self.subTest(format=fmt):
+                if fmt == 2:
+                    self.second()
+                else:
+                    (self.fx.tmp / 'format1').mkdir()
+                    self.fx = Fixture(self.fx.tmp / 'format1')
+                plain = (self.run_with(), self.fx.bundle().read_bytes())[1]
+                self.assertNotIn('app_icon', db.verify_bundle(self.fx.bundle()))
+                self.assertEqual(self.run_with('golden-sunset', 'thor')[0], 0)
+                self.assertNotEqual(self.fx.bundle().read_bytes(), plain)
+                self.assertEqual(self.run_with('', 'thor')[0], 0)           # an empty choice is no choice
+                self.assertEqual(self.fx.bundle().read_bytes(), plain)
+
+    def test_a_choice_the_apps_do_not_carry_is_refused_before_any_work(self):
+        self.second()
+        for colourway, edition, label in (('sunrise', 'thor', 'an unknown colourway'), ('golden-sunset', 'fold', 'the window\'s word, not the app\'s'),
+                                          ('golden-sunset', None, 'no edition'), ('Golden-Sunset', 'thor', 'another spelling')):
+            with self.subTest(label):
+                env = {k: v for k, v in os.environ.items() if k not in ('BUILDER_APP_ICON', 'BUILDER_APP_EDITION')}
+                env.update({k: v for k, v in (('BUILDER_APP_ICON', colourway), ('BUILDER_APP_EDITION', edition)) if v is not None})
+                with unittest.mock.patch.dict(os.environ, env, clear=True):
+                    self.assert_refused_before_any_work(db.EXIT_USAGE, 'the apps carry the colourways')
+
+    def test_a_bundle_whose_app_icon_is_not_one_the_apps_carry_is_refused(self):
+        self.second()
+        code, text, _ = self.run_with()
+        self.assertEqual(code, 0, text)
+        good = db.verify_bundle(self.fx.bundle())
+        del good['_seal']
+        sources = {'lib/arm64-v8a/libgame.so': (self.fx.work / 'link/libgame.so').read_bytes(), 'shaders/pack.bin': b'shader pack bytes',
+                   'title.xex': XEX, 'decoded.image.bin': (self.fx.work / 'decode/image.bin').read_bytes(),
+                   'runtime/inputs/files.bin': (self.fx.work / 'catalog/files.bin').read_bytes()}
+        probe = self.fx.tmp / 'probe.bundle'
+
+        def check(value):
+            manifest = dict(good, app_icon=value)
+            probe.write_bytes(raw_bundle([{'name': 'manifest.json', 'data': manifest_bytes(manifest)}] +
+                                         [{'name': n, 'data': d} for n, d in sorted(sources.items())]))
+            return db.verify_bundle(probe)
+
+        self.assertEqual(check('android-peach-rose')['app_icon'], 'android-peach-rose')     # the same file with a good value reads
+        for value in ('fold-peach-rose', 'android-sunrise', 'android', 'peach-rose', 'android-peach-rose-2', ['android', 'peach-rose'], None):
+            with self.subTest(value=value), self.assertRaises(db.BuilderError) as cm:
+                check(value)
+            self.assertIn('app_icon', str(cm.exception))
 
 
 if __name__ == '__main__':

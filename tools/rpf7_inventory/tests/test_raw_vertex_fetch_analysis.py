@@ -29,7 +29,7 @@ class RawVertexFetchTests(unittest.TestCase):
                                       '62':['fetch0.x','fetch0.y','fetch0.z','1']})
         self.assertEqual([f['stride_words'] for f in p['vertex_fetches']],[7,7])
         self.assertFalse(p['gpu_executed']);self.assertFalse(p['resource_bytes_read'])
-        # The build Mac's own source/constant/stride are not used. Full fetch writes
+        # The mini's own source/constant/stride are not used. Full fetch writes
         # r0, but mini must retain the original index, not read fetched r0.x.
         data=pair(fetch(dst=0),fetch(dst=1,src=63,slot=95,stride=255,offset=3,
                                     fmt=38,swizzle=0x688,mini=True))

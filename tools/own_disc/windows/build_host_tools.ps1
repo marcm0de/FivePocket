@@ -3,7 +3,8 @@
 #   build_host_tools.ps1 -Source DIR -Generator DIR -GeneratorExe FILE -Dxc DIR -Mingw DIR -CMake FILE
 #                        -Ninja FILE -Work NEW_DIR -Output NEW_DIR
 #
-# -Source        the host sources as sent from the first machine: tools\xex_image, tools\xmem_lzx, the shader
+# -Source        the host sources as sent from the first machine: tools\xex_image, tools\xmem_lzx (and since 2026-11-24
+#                tools\xex_patch, the title-update patcher, when present), the shader
 #                translator's base tree (xenos\base, itself the plain v41 state) and the changed files of its other
 #                states (xenos\main, xenos\gradient, xenos\reglod; since 2026-10-24 xenos\coissue and
 #                xenos\coissue-reglod, the fix tables' translators, when present), and support\ (dxc_mingw_uuid.h,
@@ -46,11 +47,12 @@ function Build($name, $targets) {
 }
 New-Item -ItemType Directory "$Work\src\tools", "$Work\build" | Out-Null
 
-# 1. the two small tools; their build files look for the generator's tree beside them
-Copy-Item "$Source\tools\xex_image" "$Work\src\tools\xex_image" -Recurse
-Copy-Item "$Source\tools\xmem_lzx" "$Work\src\tools\xmem_lzx" -Recurse
+# 1. the small tools; their build files look for the generator's tree beside them. xex_patch (the title-update patcher,
+#    XenonRecomp's XexPatcher) only when the sources carry it: a package without title-update profiles needs none.
+$small = @('xex_image', 'xmem_lzx') + @('xex_patch' | Where-Object { Test-Path "$Source\tools\$_" })
+foreach ($name in $small) { Copy-Item "$Source\tools\$name" "$Work\src\tools\$name" -Recurse }
 Copy-Item $Generator "$Work\src\tools\XenonRecomp" -Recurse
-foreach ($name in 'xex_image', 'xmem_lzx') {
+foreach ($name in $small) {
   Configure $name "$Work\src\tools\$name" '-include cstdlib'       # (llvm-mingw's C++ library wants it for the formatting library)
   Build $name ''
 }
@@ -94,6 +96,7 @@ Copy-Item $GeneratorExe "$Output\XenonRecomp.exe"
 Copy-Item "$Generator\XenonUtils\ppc_context.h" "$Output\ppc_context.h"
 Copy-Item "$Work\build\xex_image\xex_image.exe" "$Output\xex_image.exe"
 Copy-Item "$Work\build\xmem_lzx\xmem-lzx.exe" "$Output\xmem-lzx.exe"
+if ($small -contains 'xex_patch') { Copy-Item "$Work\build\xex_patch\xex_patch.exe" "$Output\xex_patch.exe" }
 foreach ($state in $states) {
   $folder = if ($state -eq 'base') { 'v41' } else { $state }
   New-Item -ItemType Directory "$Output\xenos\$folder" | Out-Null

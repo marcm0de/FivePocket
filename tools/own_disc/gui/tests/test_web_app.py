@@ -42,7 +42,7 @@ class Window(t.Synthetic):
         self.addCleanup(self.patch.stop)
 
     def app(self, **kw):
-        def choose(title, folder):
+        def choose(title, folder, *image_filter):
             self.picked.append(title)
             return self.answers.pop(0) if self.answers else None
         return web_app.AppState([str(self.fx.side)], choose=choose, gui_root=self.gui_root, backdrop_dirs=[self.root / 'bd'], **kw)
@@ -151,6 +151,60 @@ class Window(t.Synthetic):
         app.act('set_backdrop', {'id': '../../etc'})
         self.assertEqual(app.snapshot()['backdrop'], 'la-sunset')
 
+    def test_the_app_icon_pick_starts_on_pink_blue_dusk_is_kept_and_goes_to_the_build(self):
+        web = self.root / 'web'
+        (web / 'logos').mkdir(parents=True)
+        for name in ('five-pocket-thor-peach-rose.png', 'five-pocket-android-golden-sunset.png'):
+            (web / 'logos' / name).write_bytes(b'x')
+        app = self.app(logo_dir=web)
+        s = app.snapshot()
+        self.assertEqual(s['app_icons'], [{'id': 'pink-blue-dusk', 'name': 'Pink/Blue Dusk'}, {'id': 'golden-sunset', 'name': 'Golden Sunset'},
+                                          {'id': 'peach-rose', 'name': 'Peach/Rose'}])
+        self.assertEqual(s['app_icon'], 'pink-blue-dusk')
+        self.assertEqual(s['logos']['thor'], {'peach-rose': 'logos/five-pocket-thor-peach-rose.png'})   # previews without backdrops
+        app.act('set_app_icon', {'id': 'peach-rose'})
+        app.act('set_app_icon', {'id': '../../etc'})
+        self.assertEqual(app.snapshot()['app_icon'], 'peach-rose')
+        again = self.app(logo_dir=web)
+        self.assertEqual(again.snapshot()['app_icon'], 'peach-rose')                  # a new window remembers it
+        again.discs = {'play': self.fx.disc, 'install': self.install}
+        again.fetched = {str(self.release): True}
+        builds = [s.words for s in again.plan() if s.kind == 'build']
+        self.assertTrue(builds)
+        self.assertTrue(all(w[-4:-1] == ['--app-icon', 'peach-rose', '--edition'] for w in builds), builds)
+
+    def test_title_update_and_dlc_fields_show_for_an_edition_that_takes_them_and_reach_its_build(self):
+        app = self.app()
+        self.assertEqual([x['shown'] for x in app.snapshot()['extras']], [False, False])     # a 1.0 profile takes neither
+        fx2, _ = self.package('updated', change=lambda fx: fx.profile['games'][0].update(
+            title_update={'label': 'Fake update 2', 'executable_sha256': fx.profile['games'][0]['executable_sha256'],
+                          'executable_size': 1, 'files': [{'path': 'default.xexp', 'size': 1, 'sha256': '0' * 64}]},
+            dlc={'title_id': '12345678'}))
+        app = web_app.AppState([str(fx2.side)], choose=lambda title, folder, *f: self.answers.pop(0), gui_root=self.gui_root,
+                               backdrop_dirs=[self.root / 'bd'])
+        extras = {x['slot']: x for x in app.snapshot()['extras']}
+        self.assertEqual({k: (x['shown'], x['needed']) for k, x in extras.items()}, {'update': (True, True), 'dlc': (True, False)})
+        packs = self.root / 'my dlc'
+        packs.mkdir()
+        t.fixture.stfs_package(packs / 'ABC123', content_type=2, metadata_version=2)
+        self.answers += [str(packs / 'ABC123'), str(packs)]                     # a DLC pack picked as the update, then the packs
+        app.act('choose_extra', {'slot': 'update'})
+        app.act('choose_extra', {'slot': 'dlc', 'folder': True})
+        extras = {x['slot']: x for x in app.snapshot()['extras']}
+        self.assertIn('Not a title-update package', extras['update']['problems'][0])
+        self.assertEqual(extras['dlc']['problems'], [])
+        app.discs = {'play': fx2.disc, 'install': self.install}
+        app.fetched = {str(fx2.side / 'release.json'): True}
+        self.assertTrue(any(p.startswith('Title update: Not a title-update package') for p in app.ready_problems()), app.ready_problems())
+        tu = self.root / 'tu00000009_00000000'
+        t.fixture.stfs_package(tu)
+        self.answers.append(str(tu))
+        app.act('choose_extra', {'slot': 'update'})
+        builds = [s.words for s in app.plan() if s.kind == 'build']
+        self.assertEqual(builds[0][-4:], ['--title-update', str(tu), '--dlc', str(packs)])
+        app.act('clear_extra', {'slot': 'dlc'})
+        self.assertNotIn('--dlc', [s.words for s in app.plan() if s.kind == 'build'][0])
+
     def test_a_window_opens_on_its_own_packages_edition_beside_another_package(self):
         fold, _ = self.package('single', profile_id='fivepocket-v1944-3')
         thor, _ = self.package('thor2', profile_id='fivepocket-thor-edition-v852-3')
@@ -211,64 +265,6 @@ class Window(t.Synthetic):
         server.server_close()
         (state_dir / web_app.WINDOW_FILE).write_text(json.dumps({'port': port, 'token': 'tok'}))
         self.assertIsNone(web_app.running_instance(state_dir))                         # it ended
-
-
-
-class LinuxDesktop(unittest.TestCase):
-    """Linux: the desktop's open dialog and the window's browser (no desktop here: the programs are stood in for)."""
-
-    def run_dialog(self, installed, title, folder, image_filter=True, out='/home/p/Disc 2.iso\n', code=0):
-        calls = []
-        def run(argv, **kw):
-            calls.append(argv)
-            return unittest.mock.Mock(returncode=code, stdout=out)
-        with unittest.mock.patch.object(web_app.sys, 'platform', 'linux'), \
-                unittest.mock.patch.object(web_app.shutil, 'which', lambda n: f'/usr/bin/{n}' if n in installed else None), \
-                unittest.mock.patch.object(web_app.subprocess, 'run', run):
-            return web_app.choose_path(title, folder, image_filter), calls
-
-    def test_the_disc_and_folder_dialogs_come_from_zenity_or_kdialog(self):
-        got, calls = self.run_dialog({'zenity', 'kdialog'}, 'Disc 2 (Play): your disc image', False, out='/home/p/Disc 2.iso \n')
-        self.assertEqual(got, '/home/p/Disc 2.iso ')                # spaces in the name stay, even at its end; only the line end goes
-        self.assertEqual(calls, [['zenity', '--file-selection', '--title=Disc 2 (Play): your disc image',
-                                  '--file-filter=Xbox 360 disc image (*.iso) | *.iso *.ISO', '--file-filter=All files | *']])
-        got, calls = self.run_dialog({'zenity'}, 'Where the finished files go', True, out='/home/p/out\n')
-        self.assertEqual((got, calls[0][-1]), ('/home/p/out', '--directory'))
-        got, calls = self.run_dialog({'kdialog'}, 'Disc 1', False)
-        self.assertEqual(calls[0][:4], ['kdialog', '--title', 'Disc 1', '--getopenfilename'])
-        self.assertEqual(calls[0][-1], '*.iso *.ISO|Xbox 360 disc image (*.iso)')
-        got, calls = self.run_dialog({'kdialog'}, 'Folder', True, out='/home/p/out\n')
-        self.assertEqual((got, calls[0][3]), ('/home/p/out', '--getexistingdirectory'))
-        self.assertEqual(self.run_dialog({'zenity'}, 'Disc 1', False, out='', code=1)[0], None)    # cancelled
-        self.assertEqual(self.run_dialog(set(), 'Disc 1', False), (None, []))                       # neither installed
-
-    def show(self, installed, wait):
-        process = unittest.mock.Mock()
-        process.wait.side_effect = wait
-        opened, started = [], []
-        def popen(argv, **kw):
-            started.append(argv)
-            return process
-        with unittest.mock.patch.object(web_app.sys, 'platform', 'linux'), \
-                unittest.mock.patch.object(web_app.shutil, 'which', lambda n: f'/usr/bin/{n}' if n in installed else None), \
-                unittest.mock.patch.object(web_app.subprocess, 'Popen', popen), \
-                unittest.mock.patch.object(web_app.webbrowser, 'open', opened.append):
-            import tempfile
-            with tempfile.TemporaryDirectory() as state:
-                web_app.show_window('http://127.0.0.1:1/index.html?t=x', Path(state))
-                return started, opened, (Path(state) / 'window-profile').is_dir()
-
-    def test_the_window_opens_in_app_mode_or_falls_back_to_the_default_browser(self):
-        url = 'http://127.0.0.1:1/index.html?t=x'
-        started, opened, profile = self.show({'chromium', 'google-chrome'}, web_app.subprocess.TimeoutExpired('chrome', 3))
-        self.assertEqual([a[:2] for a in started], [['/usr/bin/google-chrome', f'--app={url}']])   # running after 3 s: the window is up
-        self.assertEqual((opened, profile), ([], True))
-        started, opened, _ = self.show({'chromium'}, [1])                    # ended at once with an error (a confined snap browser)
-        self.assertEqual((len(started), opened), (1, [url]))
-        started, opened, _ = self.show({'chromium'}, [0])                    # handed to a browser already running: done
-        self.assertEqual(opened, [])
-        started, opened, _ = self.show(set(), None)                          # none installed
-        self.assertEqual((started, opened), ([], [url]))
 
 
 if __name__ == '__main__':

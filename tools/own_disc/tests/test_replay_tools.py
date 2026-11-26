@@ -438,9 +438,77 @@ class Freeze(Files):
 
     def test_the_compilers_host_folder_comes_from_the_driver(self):
         self.assertEqual(freeze_build.compiler_root(['/ndk/prebuilt/darwin-x86_64/bin/clang++', '-c']), '/ndk/prebuilt/darwin-x86_64')
-        for driver in ('/usr/bin/g++', '/ndk/prebuilt/darwin-x86_64/clang++', '/ndk/bin/clang'):
+        self.assertEqual(freeze_build.compiler_root(['/ndk/prebuilt/darwin-x86_64/bin/clang', '-c']), '/ndk/prebuilt/darwin-x86_64')
+        for driver in ('/usr/bin/g++', '/ndk/prebuilt/darwin-x86_64/clang++', '/ndk/bin/gcc'):
             with self.assertRaises(SystemExit):
                 freeze_build.compiler_root([driver, '-c'])
+
+    def test_a_recorded_build_is_frozen_with_its_commands_as_recorded(self):
+        # a build like tu_compile.py's: obj/<unit>.meta.json beside each object, build.json, link-command.json
+        import hashlib, json
+        root = Path(self.tmp.name, 'repo').resolve()
+        sha = lambda p: hashlib.sha256(Path(p).read_bytes()).hexdigest()
+        cc = root.parent / 'ndk/prebuilt/host/bin/clang++'
+        cc.parent.mkdir(parents=True)
+        cc.write_bytes(b'cc')
+        (root.parent / 'ndk/prebuilt/host/include').mkdir()
+        sysh = root.parent / 'ndk/prebuilt/host/include/stddef.h'
+        sysh.write_bytes(b'// std')
+        build = root / 'work/compile/attempts/a/build'
+        (build / 'obj').mkdir(parents=True)
+        files = {'src/a.cpp': b'int a;', 'src/b.cpp': b'int b;', 'tools/h.h': b'// h', 'work/compile/a/exports': b'{};'}
+        for rel, data in files.items():
+            (root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (root / rel).write_bytes(data)
+        records = []
+        for name, kind in (('a.cpp', 'host'), ('b.cpp', 'chunk')):
+            obj, dep = build / 'obj' / (name + '.o'), build / 'obj' / (name + '.d')
+            obj.write_bytes(name.encode())
+            command = [str(cc), '-c', str(root / 'src' / name), '-o', str(obj), '-MD', '-MF', str(dep)]
+            deps = {str(root / 'src' / name): sha(root / 'src' / name), str(root / 'tools/h.h'): sha(root / 'tools/h.h'), str(sysh): sha(sysh)}
+            (build / 'obj' / (name + '.meta.json')).write_text(json.dumps(dict(command=command, deps=deps, object_sha256=sha(obj))))
+            records.append(dict(name=name, kind=kind, object=str(obj), object_sha256=sha(obj), replaces=None, source=command[2]))
+        library = build / 'lib.so'
+        library.write_bytes(b'lib')
+        link = [str(cc), str(build / 'obj/a.cpp.o'), str(build / 'obj/b.cpp.o'), f'-Wl,--version-script={root}/work/compile/a/exports',
+                '-o', str(library)]
+        (build / 'link-command.json').write_text(json.dumps(link))
+        (build / 'build.json').write_text(json.dumps(dict(attempt='a', records=records, library_sha256=sha(library), cwd=str(root))))
+        manifest = freeze_build.freeze_recorded(build, root)
+        self.assertEqual([(u['name'], u['kind']) for u in manifest['units']], [('a.cpp', 'runtime'), ('b.cpp', 'chunk')])
+        self.assertEqual(manifest['units'][0]['command'], json.loads((build / 'obj/a.cpp.meta.json').read_text())['command'])
+        self.assertEqual(sorted(manifest['inputs']), ['src/a.cpp', 'src/b.cpp', 'tools/h.h', 'work/compile/a/exports'])
+        self.assertEqual(sorted(manifest['compiler_inputs']), ['include/stddef.h'], 'the driver itself is no input (as a planned freeze)')
+        self.assertEqual(manifest['link']['inputs'], [f'{root}/work/compile/a/exports'])
+        (root / 'tools/h.h').write_bytes(b'// changed')
+        with self.assertRaisesRegex(SystemExit, 'changed since the build'):
+            freeze_build.freeze_recorded(build, root)
+
+    def test_a_title_update_27_recipe_defines_the_release_saves_switch_on_every_reader(self):
+        # the TU27 lane's release recipe (tu27-a132r): the switch on the units that read save_sandbox.h, not on the others
+        files = {'/s/save_sandbox.h': b'#if RECOMP_TITLE_UPDATE == 27 && !defined(RECOMP_TU27_RELEASE_SAVES)', '/s/other.h': b'#define RECOMP_TU27_SANDBOX 1'}   # another TU 27 switch only
+        tu, rel = '-DRECOMP_TITLE_UPDATE=27', '-DRECOMP_TU27_RELEASE_SAVES=1'
+        reader, plain = ['/s/a.cpp', '/s/save_sandbox.h'], ['/s/b.cpp', '/s/other.h']
+        files.update({'/s/a.cpp': b'', '/s/b.cpp': b''})
+
+        def check(units):
+            return freeze_build.release_saves_problems(units, files.__getitem__)
+
+        self.assertEqual(check([('a.cpp', ['clang++', tu, rel], reader), ('b.cpp', ['clang++', tu], plain)]), [])
+        self.assertEqual(check([('a.cpp', ['clang++', '-D', 'RECOMP_TITLE_UPDATE=27', '-D', 'RECOMP_TU27_RELEASE_SAVES'], reader)]), [],
+                         'the two-word -D form')
+        self.assertEqual(check([('a.cpp', ['clang++'], reader)]), [], 'a 1.0 build has nothing to check')
+        self.assertEqual(check([('a.cpp', ['clang++', '-DRECOMP_TITLE_UPDATE=26'], reader)]), [], 'nor does another title update')
+        for label, units, needle in (
+                ('a reader without the switch', [('a.cpp', ['clang++', tu], reader), ('b.cpp', ['clang++', tu, rel], plain)],
+                 'a.cpp reads the RECOMP_TU27_RELEASE_SAVES switch'),
+                ('a reader without the switch, two-word -D', [('a.cpp', ['clang++', '-D', 'RECOMP_TITLE_UPDATE=27'], reader)], 'a.cpp reads'),
+                ('the switch taken back by -U', [('a.cpp', ['clang++', tu, rel, '-URECOMP_TU27_RELEASE_SAVES'], reader)], 'a.cpp reads'),
+                ('a build from before the switch', [('b.cpp', ['clang++', tu, rel], plain)], 'no unit of this TU 27 build reads')):
+            with self.subTest(label):
+                problems = check(units)
+                self.assertEqual(len(problems), 1, problems)
+                self.assertIn(needle, problems[0])
 
 
 if __name__ == '__main__':

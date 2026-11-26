@@ -95,7 +95,7 @@ computer and nothing in it proves who made it.
 
 ## Format 2 (2026-10-07): what the public app reads
 
-Schema `gta5-code-bundle/2`. The container, the seal and every check above are unchanged. Three differences:
+Schema `gta5-code-bundle/2`. The container, the seal and every check above are unchanged. Six differences:
 
 1. **Runtime data.** A component may have the role `runtime-data`: a small file the runtime reads beside the game
    data (the six catalogs, the start-up shader modules and their guest-code companions). Such a component is named
@@ -108,8 +108,40 @@ Schema `gta5-code-bundle/2`. The container, the seal and every check above are u
    revisions, the compiler release, the recipe, parameter tables) and `tools`, the files the profile lists under
    `bundle.portable_tools`, each named as the profile writes it (`${repo}/...`, unexpanded) with its SHA-256.
 
-So two machines that build from the same discs with the same profile and tools write the **same file**, and
-comparing the 64 characters of the seal compares everything. The full receipts of a build stay in its work folder.
+4. **Launcher files** (1.2.0). A component may have the role `ui-asset`: a file the app's launcher reads, made by the
+   builder's ui stage from the player's own disc (the menu fonts, the controller glyphs, the backdrop and tile pictures,
+   and the SELECT and BACK menu sounds; the synthesized ones are recorded by the game library on the device). Next update:
+   also the launcher music `ui/music/launcher-music.wav`, the score track "greyhound" (16-bit stereo WAVE at 32000 Hz, about
+   12.7 MB, `ui_music.py`). Such a component is named under `ui/`, and nothing else is: `.ttf`, `.png` or `.txt` directly in
+   `ui/`, `.wav` directly in `ui/sounds/` or `ui/music/`, each at most 16 MiB (the app's `CodeBundle.uiAssetAllowed`; an app
+   older than the next update accepts no `ui/music/`). `ui/manifest.txt`
+   lists the files directly in `ui/` ("sha256 size name" per line), the gate the launcher's `UiAssets` checks. The app
+   reads them in place from `files/game-install/bundle/ui` and leaves them out of the public pin (the seal covers them).
+
+5. **The player's app icon** (next update, owner 2026-11-22). An optional top-level text `"app_icon": "<edition>-<colourway>"`:
+   the logo the player picked in the builder (`builder build --app-icon`; the window's app-icon pick), which the Android app
+   shows as its launcher icon after the import. Edition: `thor` (Thor Edition) or `android` (the single-screen app); `ios`
+   and `duo` are valid too. Colourway: `pink-blue-dusk`, `golden-sunset` or `peach-rose`. So the value is the owner's logo
+   file name without `five-pocket-` and `.png`. Any other value is refused. A build without a pick writes no key, and its
+   file is byte for byte the one a builder without this key writes. The app reads only the keys it names, so an older app
+   imports such a bundle unchanged.
+
+6. **The player's title update and DLC** (next update). Two optional roles carry the player's own files for a build of
+   the game with its title update (TU27's Online line). They are never in a builder download: the player gives them at
+   build time (`builder build --title-update FILE --dlc PATH`, or the window's fields).
+   * `title-update-data`: the title update's data archive, named exactly `update/update.rpf` (at most one; a profile
+     stage copies it out of the player's title-update package). The app installs it where the game's `update:` drive
+     reads it (`--native-update-directory`).
+   * `dlc-package`: a DLC pack exactly as it came off the console, named `dlc/<name>`. The name is the console's file
+     name in lower case: at most 42 letters and digits. There are at most 60 packs. Before any stage runs, the builder
+     reads every pack through, checks each block against the pack's own hash tree, and checks its title against the
+     game's (`games[].dlc.title_id` in the profile). The app installs them where its DLC picker puts packs
+     (`inputs/dlc-stfs/<name>`).
+   An app without these roles refuses such a bundle (unknown role). A bundle without them is unchanged.
+
+So two machines that build from the same discs with the same profile and tools (and the same app-icon pick) write the
+**same file**, and comparing the 64 characters of the seal compares everything. The full receipts of a build stay in its
+work folder.
 
 Profile: `"bundle": {"format": 2, "provenance": {...}, "portable_tools": [...], ...}`. Format 1 stays the default
 and keeps refusing `runtime-data`.

@@ -164,7 +164,7 @@ def sequence_store_copy_reference(reference):
     records=[];packed_words=[];copy_words=[]
     for index in range(4):
         pixel=reference[16+index*8:24+index*8];packed=packed_half(struct.unpack('<4H',pixel))
-        if packed is None:raise ValueError('complete finite normal-or-zero half store required')
+        if packed is None:raise ValueError('complete finite half store required')
         converted=convert_word(packed,True);records.append(pixel+struct.pack('<2I',packed,converted))
         packed_words.append(packed);copy_words.append(converted)
     return guard+b''.join(records)+guard,dict(packed_words=packed_words,copy_words=copy_words,
