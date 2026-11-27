@@ -1,0 +1,105 @@
+diff --git a/XenonRecomp/recompiler.cpp b/XenonRecomp/recompiler.cpp
+index 17da206..bc35a7c 100644
+--- a/XenonRecomp/recompiler.cpp
++++ b/XenonRecomp/recompiler.cpp
+@@ -2190,6 +2190,41 @@ bool Recompiler::Recompile(
+         println("\tsimde_mm_store_ps({}.f32, simde_mm_max_ps(simde_mm_load_ps({}.f32), simde_mm_load_ps({}.f32)));", v(insn.operands[0]), v(insn.operands[1]), v(insn.operands[2]));
+         break;
+ 
++    // patch 0020 (TU lane, 2026-11-13): vmaxub / vminub / vsubuws / vpkuhum(128) / vrlw(128), dropped before (27 sites in the
++    // TU 27 image, sub_831A7C10 and sub_831A8328). Element order follows the reversed register layout used everywhere here:
++    // element-wise forms are order-free; vpkuhum mirrors vpkuhus (vB's halfwords fill the low host bytes).
++    case PPC_INST_VMAXUB:
++        println("\tsimde_mm_store_si128((simde__m128i*){}.u8, simde_mm_max_epu8(simde_mm_load_si128((simde__m128i*){}.u8), simde_mm_load_si128((simde__m128i*){}.u8)));", v(insn.operands[0]), v(insn.operands[1]), v(insn.operands[2]));
++        break;
++
++    case PPC_INST_VMINUB:
++        println("\tsimde_mm_store_si128((simde__m128i*){}.u8, simde_mm_min_epu8(simde_mm_load_si128((simde__m128i*){}.u8), simde_mm_load_si128((simde__m128i*){}.u8)));", v(insn.operands[0]), v(insn.operands[1]), v(insn.operands[2]));
++        break;
++
++    case PPC_INST_VSUBUWS:
++        // unsigned saturating word subtract: max(a, b) - b (VSCR[SAT] is not modelled, as for the other saturating forms here)
++        println("\tsimde_mm_store_si128((simde__m128i*){}.u32, simde_mm_sub_epi32(simde_mm_max_epu32(simde_mm_load_si128((simde__m128i*){}.u32), simde_mm_load_si128((simde__m128i*){}.u32)), simde_mm_load_si128((simde__m128i*){}.u32)));", v(insn.operands[0]), v(insn.operands[1]), v(insn.operands[2]), v(insn.operands[2]));
++        break;
++
++    case PPC_INST_VPKUHUM:
++    case PPC_INST_VPKUHUM128:
++        for (size_t i = 0; i < 8; i++)
++        {
++            println("\t{0}.u8[{1}] = uint8_t({2}.u16[{1}]);", vTemp(), i, v(insn.operands[2]));
++            println("\t{0}.u8[{1}] = uint8_t({2}.u16[{3}]);", vTemp(), i + 8, v(insn.operands[1]), i);
++        }
++        println("\t{} = {};", v(insn.operands[0]), vTemp());
++        break;
++
++    case PPC_INST_VRLW:
++    case PPC_INST_VRLW128:
++        for (size_t i = 0; i < 4; i++)
++        {
++            println("\t{0}.u32[{1}] = ({2}.u32[{1}] << ({3}.u32[{1}] & 0x1F)) | ({2}.u32[{1}] >> ((32 - ({3}.u32[{1}] & 0x1F)) & 0x1F));", vTemp(), i, v(insn.operands[1]), v(insn.operands[2]));
++        }
++        println("\t{} = {};", v(insn.operands[0]), vTemp());
++        break;
++
+     case PPC_INST_VMAXSW:
+         println("\tsimde_mm_store_si128((simde__m128i*){}.u32, simde_mm_max_epi32(simde_mm_load_si128((simde__m128i*){}.u32), simde_mm_load_si128((simde__m128i*){}.u32)));", v(insn.operands[0]), v(insn.operands[1]), v(insn.operands[2]));
+         break;
+diff --git a/XenonTests/exact_vector_recompiler.cc b/XenonTests/exact_vector_recompiler.cc
+index 494a6be..d82766d 100644
+--- a/XenonTests/exact_vector_recompiler.cc
++++ b/XenonTests/exact_vector_recompiler.cc
+@@ -253,6 +253,54 @@ int main()
+           "ctx.v5.u32",
+           "ctx.cr6.so = 0;" });
+ 
++    // patch 0020: vmaxub / vminub / vsubuws / vpkuhum(128) / vrlw(128)
++    ExpectOrdered("vmaxub", Translate(PPC_INST_VMAXUB, "vmaxub", { 5, 3, 4 }),
++        { "ctx.v5.u8", "simde_mm_max_epu8(", "ctx.v3.u8", "ctx.v4.u8" });
++    ExpectOrdered("vminub", Translate(PPC_INST_VMINUB, "vminub", { 5, 3, 4 }),
++        { "ctx.v5.u8", "simde_mm_min_epu8(", "ctx.v3.u8", "ctx.v4.u8" });
++    ExpectOrdered("vsubuws", Translate(PPC_INST_VSUBUWS, "vsubuws", { 5, 3, 4 }),
++        { "ctx.v5.u32", "simde_mm_sub_epi32(simde_mm_max_epu32(", "ctx.v3.u32", "ctx.v4.u32", "ctx.v4.u32" });
++    ExpectOrdered("vpkuhum128", Translate(PPC_INST_VPKUHUM128, "vpkuhum128", { 70, 71, 72 }),
++        { "vTemp.u8[0] = uint8_t(ctx.v72.u16[0]);", "vTemp.u8[8] = uint8_t(ctx.v71.u16[0]);",
++          "vTemp.u8[7] = uint8_t(ctx.v72.u16[7]);", "vTemp.u8[15] = uint8_t(ctx.v71.u16[7]);", "ctx.v70 = vTemp;" });
++    ExpectOrdered("vpkuhum", Translate(PPC_INST_VPKUHUM, "vpkuhum", { 5, 3, 4 }),
++        { "vTemp.u8[0] = uint8_t(ctx.v4.u16[0]);", "vTemp.u8[8] = uint8_t(ctx.v3.u16[0]);", "ctx.v5 = vTemp;" });
++    ExpectOrdered("vrlw128", Translate(PPC_INST_VRLW128, "vrlw128", { 80, 81, 82 }),
++        { "vTemp.u32[0] = (ctx.v81.u32[0] << (ctx.v82.u32[0] & 0x1F)) | (ctx.v81.u32[0] >> ((32 - (ctx.v82.u32[0] & 0x1F)) & 0x1F));",
++          "vTemp.u32[3] = (ctx.v81.u32[3] << (ctx.v82.u32[3] & 0x1F))", "ctx.v80 = vTemp;" });
++    ExpectOrdered("vrlw", Translate(PPC_INST_VRLW, "vrlw", { 5, 3, 4 }), { "vTemp.u32[0] = (ctx.v3.u32[0] <<", "ctx.v5 = vTemp;" });
++    {
++        // value checks in guest element order (the host layout is reversed; the emitted forms above are applied to it)
++        const std::array<uint8_t, 16> ga{ 0, 1, 0x7F, 0x80, 0xFF, 0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x81, 0x90, 0xFE, 0x02 };
++        const std::array<uint8_t, 16> gb{ 1, 0, 0x80, 0x7F, 0x00, 0x11, 0x1F, 0x30, 0x41, 0x4F, 0x61, 0x6F, 0x80, 0x91, 0xFF, 0x01 };
++        std::array<uint8_t, 16> mx{}, mn{};
++        for (size_t i = 0; i < 16; i++) { mx[i] = ga[i] > gb[i] ? ga[i] : gb[i]; mn[i] = ga[i] < gb[i] ? ga[i] : gb[i]; }
++        ExpectElements("vmaxub unsigned", simde_mm_max_epu8(FromGuestElements(ga), FromGuestElements(gb)), mx);
++        ExpectElements("vminub unsigned", simde_mm_min_epu8(FromGuestElements(ga), FromGuestElements(gb)), mn);
++        const std::array<uint32_t, 4> wa{ 5u, 3u, 0x80000000u, 0xFFFFFFFFu }, wb{ 3u, 5u, 1u, 0xFFFFFFFFu };
++        const auto A = FromGuestElements(wa), B = FromGuestElements(wb);
++        ExpectElements("vsubuws saturates at 0", simde_mm_sub_epi32(simde_mm_max_epu32(A, B), B),
++            std::array<uint32_t, 4>{ 2u, 0u, 0x7FFFFFFFu, 0u });
++        // vpkuhum: guest vD = low bytes of vA's 8 halfwords, then of vB's
++        const std::array<uint16_t, 8> ha{ 0x0102, 0x0304, 0xFF05, 0x1206, 0x0007, 0xAB08, 0x0109, 0x770A };
++        const std::array<uint16_t, 8> hb{ 0x110B, 0x220C, 0x330D, 0x440E, 0x550F, 0x6610, 0x7711, 0x8812 };
++        alignas(16) std::array<uint16_t, 8> hostA{}, hostB{};
++        simde_mm_store_si128(reinterpret_cast<simde__m128i*>(hostA.data()), FromGuestElements(ha));
++        simde_mm_store_si128(reinterpret_cast<simde__m128i*>(hostB.data()), FromGuestElements(hb));
++        alignas(16) std::array<uint8_t, 16> hostD{};
++        for (size_t i = 0; i < 8; i++) { hostD[i] = uint8_t(hostB[i]); hostD[i + 8] = uint8_t(hostA[i]); }   // the emitted form
++        ExpectElements("vpkuhum modulo pack", simde_mm_load_si128(reinterpret_cast<const simde__m128i*>(hostD.data())),
++            std::array<uint8_t, 16>{ 0x02, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12 });
++        // vrlw: rotate each word left by vB's low 5 bits (0 and 32 rotate by nothing)
++        const std::array<uint32_t, 4> ra{ 0x80000001u, 0x12345678u, 0xDEADBEEFu, 0x0000FFFFu }, rb{ 1u, 0u, 32u + 4u, 31u };
++        alignas(16) std::array<uint32_t, 4> hostR{}, hostS{}, hostO{};
++        simde_mm_store_si128(reinterpret_cast<simde__m128i*>(hostR.data()), FromGuestElements(ra));
++        simde_mm_store_si128(reinterpret_cast<simde__m128i*>(hostS.data()), FromGuestElements(rb));
++        for (size_t i = 0; i < 4; i++) hostO[i] = (hostR[i] << (hostS[i] & 0x1F)) | (hostR[i] >> ((32 - (hostS[i] & 0x1F)) & 0x1F));
++        ExpectElements("vrlw rotates", simde_mm_load_si128(reinterpret_cast<const simde__m128i*>(hostO.data())),
++            std::array<uint32_t, 4>{ 0x00000003u, 0x12345678u, 0xEADBEEFDu, 0x80007FFFu });
++    }
++
+     ExpectOrdered(
+         "frsqrte compatibility",
+         Translate(PPC_INST_FRSQRTE, "frsqrte", { 4, 5 }),
