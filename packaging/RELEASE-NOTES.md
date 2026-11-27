@@ -7,6 +7,18 @@ download: the FivePocket Builder makes everything from your own discs, on your o
 This release is for Android (FivePocket and the Thor Edition) and the Windows builders. iOS and Duo follow in a later
 1.3.x release and stay on 1.2.0 until then.
 
+## Updated release (27 November 2026)
+
+The first 1.3.0 downloads were replaced. **Download the apps and the builder again** and install the app over the old one.
+
+- **Title Update 27 now builds on Windows.** The first 1.3.0 builders stopped every title-update build before it started
+  ("needs the update disc (not given)"), and their code generator also lacked five vector instructions the title update uses.
+  Both are fixed; a title-update build now runs to the end on Windows.
+- **Unsaved settings**: leaving Settings with changes you have not saved now asks with the game's own alert:
+  A saves, X discards, B goes back.
+- **Menu sounds when moving through the menus**: the moves (up, down, left, right) now play the game's own tick, recorded
+  from your game, as the other menu sounds do.
+
 ## What you need to do
 
 | You play on | What to do |
@@ -41,7 +53,7 @@ A new package replaces the old one only after it has been checked in full; your 
 ## Known issues
 
 - On a fresh install, "Preparing menu sounds" can wait up to about 4 minutes once (also in 1.2.x).
-- As in 1.2.x (CHANGELOG.md): some menu sounds are missing; the online clothes shop menu can stay stuck after buying;
+- As in 1.2.x (CHANGELOG.md): the online clothes shop menu can stay stuck after buying;
   Deathmatches and other jobs can hang when selected; finishing a race can crash the game.
 - Windows: Microsoft Defender can wrongly flag `XenosRecomp.exe` (inside the builder) as "Trojan:Win32/Bearfoos.A!ml".
   It is a false positive on a program built from the open source. Restore it from Protection history, allow the

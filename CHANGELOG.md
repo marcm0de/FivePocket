@@ -17,6 +17,9 @@ Android (single-screen and Thor Edition) and the Windows builders; iOS and Duo f
 - Single-screen app built from its own game code (minimap tap, phone tracking).
 
 ### Fixed
+- Updated release (2026-11-27): Windows builders build Title Update 27 (the check no longer refuses it; the code
+  generator carries patch 0020); unsaved settings ask with the game's alert (A save, X discard, B back); menu moves
+  play the game's tick.
 - Disc copy / large package import no longer gets the app closed by Android's low-memory killer.
 - An interrupted "Preparing menu sounds" step no longer repeats on every start.
 - Online cash no longer lost or reset when the game saves during loading.
