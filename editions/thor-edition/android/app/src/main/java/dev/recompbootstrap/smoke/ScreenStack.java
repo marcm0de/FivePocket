@@ -108,7 +108,8 @@ final class ScreenStack<S> {
             return true;
         }
         boolean gamepadButton = (keyCode >= 96 && keyCode <= 110) || (keyCode >= 188 && keyCode <= 203);
-        return gamepadButton && keyCode != 96 && keyCode != 97 && keyCode != 100 && keyCode != 102
+        // (1.3.0 reship: X, 99, answers the game alert's "No")
+        return gamepadButton && keyCode != 96 && keyCode != 97 && keyCode != 99 && keyCode != 100 && keyCode != 102
                 && keyCode != 103 && keyCode != 108;
     }
 

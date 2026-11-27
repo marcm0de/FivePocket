@@ -1,11 +1,11 @@
 {
   "schema": "gta5-ship-config/1",
-  "build": "tu27-m05r-fivepocket-thor",
+  "build": "tu27-m09r-fivepocket-thor",
   "filesRoot": "/data/user/0/dev.recompbootstrap.smoke.thor/files",
   "library": {
     "asset": "ship/game-library.bin",
-    "size": 367924272,
-    "sha256": "1ff5cb930e2230596873f5a8dfaafa6fa4da3d4d70b72415669877d503efb181"
+    "size": 367926840,
+    "sha256": "bb87d31e4440feea89e5ee5a6e82834149b5548122452a466bdcf1210026b79e"
   },
   "shaderPack": {
     "asset": "ship/shader-pack.bin",

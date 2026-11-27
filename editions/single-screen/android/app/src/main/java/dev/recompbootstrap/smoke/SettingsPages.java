@@ -315,6 +315,10 @@ final class SettingsPages {
      */
     void tapAnswer(MenuModel model, ShellNav nav, int answer) {
         if (model.overlay() == MenuModel.OVERLAY_NONE || answer < 0 || answer >= model.overlayButtonCount()) return;
+        if (model.overlay() == MenuModel.OVERLAY_SAVE_QUESTION) {   // 1.3.0 reship: the game's alert has no highlight: a tap answers
+            model.tapOverlayButton(answer);
+            return;
+        }
         if (model.overlayFocused() == answer) {
             forward(model, nav, NavInput.CONFIRM, false);
             return;
@@ -375,6 +379,7 @@ final class SettingsPages {
             for (int b = 0; b < labels.length; ++b) labels[b] = model.overlayButtonLabel(b);
             page.alert = new ConfirmOverlay(model.overlayTitle(), model.overlayDetail(), labels, model.overlayFocused());
             if (model.overlay() == MenuModel.OVERLAY_IMPORT_SAVES) page.alert.heading = HEADING_IMPORT_SAVES;   // (1.2.1: not the frame's bare "alert")
+            page.alert.gameAlert = model.overlay() == MenuModel.OVERLAY_SAVE_QUESTION;   // (1.3.0 reship: the game's own alert)
             page.alert.scroll = alertScroll;
         }
     }
@@ -554,6 +559,12 @@ final class SettingsPages {
         // While a save is being written the model ignores every command (MenuModel.nav), so no button is named.
         if (MenuModel.TEXT_SAVING.equals(model.status())) return prompts;
         int overlay = model.overlay();
+        if (overlay == MenuModel.OVERLAY_SAVE_QUESTION) {   // 1.3.0 reship: the game alert's own prompts
+            prompts.add(new MenuScenes.Prompt("Yes", "A", NavInput.CONFIRM));
+            prompts.add(new MenuScenes.Prompt("No", "X", NavInput.SECONDARY));
+            prompts.add(new MenuScenes.Prompt("Cancel", "B", NavInput.BACK));
+            return prompts;
+        }
         if (overlay != MenuModel.OVERLAY_NONE) {
             prompts.add(new MenuScenes.Prompt(overlay == MenuModel.OVERLAY_RESTORE ? "Cancel"
                     : overlay == MenuModel.OVERLAY_SAVE_QUESTION ? "Keep Editing" : "Close", "B", NavInput.BACK));

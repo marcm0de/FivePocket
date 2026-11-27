@@ -141,7 +141,8 @@ final class EnhancedScenes {
     static Scene alertPage(MenuScenes.Page page, Scene.Measure measure, int panelH, float k, boolean touchIcons) {
         ConfirmOverlay alert = page.alert;
         MenuScenes.Page q = new MenuScenes.Page();
-        q.title = alert.heading != null && !alert.heading.isEmpty() ? alert.heading : page.title;
+        // 1.3.0 reship (owner 2026-11-26): no own heading -> the screen's name (SETTINGS), not the bare page title (FIVEPOCKET)
+        q.title = alert.heading != null && !alert.heading.isEmpty() ? alert.heading : title(page);
         q.backdrop = page.backdrop;
         q.status.addAll(page.status);
         if (alert.title != null && !alert.title.isEmpty()) q.info.add(new MenuScenes.Line(alert.title, MenuScenes.TONE_NORMAL));
@@ -170,6 +171,7 @@ final class EnhancedScenes {
      * showing our X and check instead of button letters (START and Y prompts get none: their rows do the same by touch).
      */
     static Scene build(MenuScenes.Page page, Scene.Measure measure, int panelH, float k, boolean touchIcons) {
+        if (page.alert != null && page.alert.gameAlert) return MenuScenes.gameAlert(page, measure, panelH);   // (1.3.0 reship)
         if (page.alert != null) return alertPage(page, measure, panelH, k, touchIcons);
         Scene scene = new Scene();
         // the Enhanced main menu's backdrop: the loading-screen art, sharp (the disc's, when imported); else the player's own picture

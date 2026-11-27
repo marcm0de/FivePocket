@@ -27,9 +27,28 @@ final class MenuSoundsPrep {
     int found;
     String reason = "";
 
-    /** Setup needs the step: the library can record and not every sound file is in place yet. */
+    /** Setup needs the step: the library can record, the game will reach its scripts (profileReady), and a sound file is missing. */
     static boolean needed(File filesDir, boolean libraryRecords) {
-        return libraryRecords && found(filesDir) < MenuSounds.FILES.length;
+        return libraryRecords && profileReady(filesDir) && found(filesDir) < MenuSounds.FILES.length;
+    }
+
+    /**
+     * 1.3.0 reship (lead 2026-11-26): whether the pass can record at all. The library asks the game for the sounds from its script thread, and
+     * on a profile without the game's own settings (files/profile/title_*.settings, written when the player confirms the game's first-start
+     * Display Calibration) the game waits on that screen and its scripts never start: the pass then sat at "2 of 5" for its whole
+     * TIMEOUT_MS (Fold 11-24 twice; Thor .tu27q 2026-11-26 12:56, device-runs/menusound-pass-thor-20261126.log: start screens drawn
+     * for 100 s, no script tick, Display Calibration on screen). Without the file the step is left out and the library records the
+     * five sounds by itself at the first real start, after the player confirms the screen (Thor 13:00: all five 42 s after A,
+     * device-runs/menusound-firststart-thor-20261126.log).
+     */
+    static boolean profileReady(File filesDir) {
+        File[] files = new File(filesDir, "profile").listFiles();
+        if (files == null) return false;
+        for (File f : files) {
+            String n = f.getName();
+            if (f.isFile() && f.length() > 0 && n.startsWith("title_") && n.endsWith(".settings")) return true;
+        }
+        return false;
     }
 
     static File library(File filesDir) {

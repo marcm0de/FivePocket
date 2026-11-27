@@ -41,7 +41,7 @@ final class LandingScenes {
      * the X / check icons (a touch screen without a gamepad), the list tabs' rule.
      */
     static Scene build(MenuScenes.Page page, Scene.Measure measure, int panelH, boolean touchIcons) {
-        if (page.alert != null) return MenuScenes.build(page, measure);
+        if (page.alert != null) return EnhancedScenes.build(page, measure, panelH, 1f, touchIcons);   // 1.3.0 reship: questions in the Enhanced frame (SPEC §125)
         Scene scene = new Scene();
         scene.fill(BLACK);
         boolean game = measure.gameFont();

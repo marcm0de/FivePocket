@@ -723,6 +723,31 @@ class Package(unittest.TestCase):
             self.assertEqual(b.main(['--release', str(release), '--cache', str(self.cache), 'check', '--work', str(fx.work)]), db.EXIT_USAGE, out.getvalue())
         self.assertIn('needs that disc on the command line', out.getvalue())
 
+    def test_37b_check_plans_the_update_disc_for_a_title_update_build(self):
+        # 1.3.0 reship (taken down 2026-11-26): the released builders refused every TU 27 build at check() - "stage update-patch-file:
+        # needs the update disc (not given)" - because check planned only the play and install discs. A title-update build plans the
+        # update disc too; a build without the title update still refuses a profile whose stages need it.
+        self.fetch(); (self.root / 'fixture').mkdir()
+        fx = fixture.Fixture(self.root / 'fixture')
+        for stage in fx.profile['stages']:
+            if stage['adapter'] == 'command': stage['argv'][0] = '${python}'
+        fx.stage('shaders')['source'] = '${repo}/pack.bin'
+        fx.profile['stages'].insert(1, {'id': 'update-patch-file', 'adapter': 'disc-file', 'disc': 'update', 'path': 'default.xexp',
+                                        'outputs': {'patch': 'input/default.xexp'}})
+        fx.profile_path.write_text(json.dumps(fx.profile))
+        shutil.copyfile(fx.profile_path, fx.side / 'profile.json')
+        shutil.copyfile(fx.profile_path, fx.side / 'profile-tu.json')
+        self.release.update(schema='builder-release/1', host=b.host_id(), profile='profile.json',
+                            title_update_profiles={'default': 'profile-tu.json'},
+                            files=[dict(path=p.relative_to(fx.side).as_posix(), sha256=db.sha256_file(p)) for p in fx.side.rglob('*') if p.is_file()],
+                            estimates=dict(min_free_bytes=1, build_time='synthetic fixture only'))
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            b.check(self.release, fx.side, fx.work.resolve(), self.cache.resolve(), None, title_update=True)
+        self.assertIn('Payload, compiler and stage prerequisites verified', out.getvalue())
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(b.Refusal) as refused:
+            b.check(self.release, fx.side, fx.work.resolve(), self.cache.resolve(), None, title_update=False)
+        self.assertIn('needs the update disc', str(refused.exception))
+
     def packaged(self, change=None):
         self.fetch(); (self.root / 'fixture').mkdir()
         fx = fixture.Fixture(self.root / 'fixture')

@@ -204,7 +204,9 @@ final class SetupDiscScreen implements Screen {
             case SetupDiscModel.ACT_LEAVE:
                 host.pop();
                 // 2026-11-17 (owner: no silent first menu): setup's last step, when the game library can record its menu sounds
-                if (model.finishReady() && MenuSoundsPrep.found(host.filesDir()) < MenuSounds.FILES.length) {   // (whether the game code records: the step looks, off the UI thread)
+                // 1.3.0 reship: not on a fresh profile (MenuSoundsPrep.profileReady: the game would wait at Display Calibration, no sound recorded)
+                if (model.finishReady() && MenuSoundsPrep.profileReady(host.filesDir())
+                        && MenuSoundsPrep.found(host.filesDir()) < MenuSounds.FILES.length) {   // (whether the game code records: the step looks, off the UI thread)
                     host.push(new MenuSoundsScreen());
                 }
                 break;

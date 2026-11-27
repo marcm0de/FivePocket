@@ -959,7 +959,10 @@ def check(release, root, work, cache, target=None, title_update=False):
         failures = []
         for game in profile['games']:
             ctx = db.Context(profile, work, root, work); ctx.game = game
-            ctx.discs = {role: DiscNamedAtBuild(role) for role in ('play', 'install')}  # names only; no stage runs, no disc is read
+            # names only; no stage runs, no disc is read. A title-update build also gives the update (1.3.0 reship: check planned only
+            # play and install, so every TU build was refused before a stage ran - "needs the update disc (not given)").
+            roles = ('play', 'install') + (('update',) if title_update else ())
+            ctx.discs = {role: DiscNamedAtBuild(role) for role in roles}
             db.plan_paths(profile, ctx)
             if 'output' in profile:
                 db.plan_output(profile, ctx)

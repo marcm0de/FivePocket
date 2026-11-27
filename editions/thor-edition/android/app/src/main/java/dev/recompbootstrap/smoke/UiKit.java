@@ -44,6 +44,8 @@ final class UiKit {
         final Typeface game;
         /** M6: the disc's condensed face (Scene.GAME_COND), or null. */
         final Typeface gameCond;
+        /** 1.3.0 reship: the disc's Pricedown (Scene.GAME_CASH), or null when it was not imported. */
+        final Typeface cash;
         /** 2026-11-22 (Language row): the characters each disc face has, or null when unknown (then the face is kept for any text). */
         final FontCoverage gameCover, condCover;
         /** The game's own controller glyphs (Scene.IMAGE), by file name; empty when they were not imported. */
@@ -57,6 +59,7 @@ final class UiKit {
             heavy = load(assets, WEIGHT_HEAVY, Typeface.create("sans-serif-black", Typeface.BOLD));
             game = loadFile(UiAssets.font(filesDir, UiAssets.GAME_FONT));   // the app's private files only (UiAssets), never the package
             gameCond = loadFile(UiAssets.font(filesDir, UiAssets.COND_FONT));
+            cash = loadFile(UiAssets.font(filesDir, UiAssets.CASH_FONT));
             gameCover = game == null ? null : FontCoverage.read(UiAssets.font(filesDir, UiAssets.GAME_FONT));
             condCover = gameCond == null ? null : FontCoverage.read(UiAssets.font(filesDir, UiAssets.COND_FONT));
             Bitmap picture = null;
@@ -141,6 +144,7 @@ final class UiKit {
 
         /** The face for this text: a disc face that lacks one of its characters (Korean, Chinese) gives way to the app's own face. */
         Typeface of(int face, String text) {
+            if (face == Scene.GAME_CASH) return cash != null && (text == null || text.matches("[A-Za-z ]*")) ? cash : heavy;
             boolean gameCovers = text == null || gameCover == null || gameCover.covers(text);
             boolean condCovers = text == null || condCover == null || condCover.covers(text);
             switch (pick(face, game != null, gameCond != null, gameCovers, condCovers)) {

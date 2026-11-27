@@ -560,7 +560,7 @@ final class LauncherScreen implements Screen, UiKit.Listener {
         MenuLayout.Frame frame = view.frame();
         if (landing() && page.alert == null) {   // M6a: the Play tab as the Enhanced landing (the template's own size, centred)
             view.show(LandingScenes.build(page, view, frame.h, page.touchIcons));   // (2026-11-17: the shared tab bar and prompt style)
-        } else if (nav.tab() != ShellNav.PLAY && !classicMenus && page.alert == null) {   // M5: every list tab   // (an alert: the console frame, this screen's frame)
+        } else if (!classicMenus && (nav.tab() != ShellNav.PLAY || page.alert != null)) {   // M5: every list tab; 1.3.0 reship (owner 2026-11-26): a question on any tab too, in the Enhanced frame (EnhancedScenes.alertPage, SPEC §125); only settings/menu-classic keeps the console alert
             float k = page.touchIcons ? EnhancedScenes.touchScale(view.xdpi(), view.unit(), frame.h) : 1f;
             Scene scene = EnhancedScenes.build(page, view, frame.h, k, page.touchIcons);
             scene.panelW = frame.w;

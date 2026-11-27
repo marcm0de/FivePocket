@@ -14,6 +14,9 @@ final class ConfirmOverlay {
     int focused;
     /** First visible line of a detail text longer than the alert shows at a time. */
     int scroll;
+    /** 1.3.0 reship (owner 2026-11-26): drawn as the game's own alert (MenuScenes.gameAlert): the heading, the text between two
+     *  rules, the answers as the button prompts (no highlighted answer). */
+    boolean gameAlert;
 
     ConfirmOverlay(String title, String detail, String[] buttons, int focused) {
         this.title = title;

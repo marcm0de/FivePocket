@@ -463,8 +463,8 @@ final class SetupDiscModel {
     /** A NavInput command. Returns true if handled; false for BACK means "leave this page". */
     boolean nav(int command, boolean repeat) {
         if (overlay != OVERLAY_NONE) {
-            if (command == NavInput.LEFT) overlayFocus = Math.max(0, overlayFocus - 1);
-            else if (command == NavInput.RIGHT) overlayFocus = Math.min(overlayButtons().length - 1, overlayFocus + 1);
+            if (command == NavInput.LEFT || command == NavInput.UP) overlayFocus = Math.max(0, overlayFocus - 1);   // 1.3.0 reship: UP / DOWN too (answers listed top to bottom)
+            else if (command == NavInput.RIGHT || command == NavInput.DOWN) overlayFocus = Math.min(overlayButtons().length - 1, overlayFocus + 1);
             else if (command == NavInput.BACK && !repeat) overlay = OVERLAY_NONE;
             else if (command == NavInput.CONFIRM && !repeat) activateOverlay();
             return true;

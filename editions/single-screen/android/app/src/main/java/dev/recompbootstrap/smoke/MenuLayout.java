@@ -47,7 +47,7 @@ final class MenuLayout {
     static final int MARK_ON_SELECT = 0xFF4E9E4B;
     static final int WARNING = 0xFFF0C850, ERROR = 0xFFFF7A70, ALERT_YELLOW = 0xFFF0C84B;
     static final int MARK_A = 0xFF5FB400, MARK_A_INK = 0xFFD8F5B2, MARK_B = 0xFFAC0400, MARK_B_INK = 0xFFF9C6C2,
-            MARK_X = 0xFF0866C9, MARK_X_INK = 0xFFC6DDF7, MARK_Y = 0xFFD1A600, MARK_Y_INK = 0xFFFAF0C0,
+            MARK_X = 0xFF0A4FA6, MARK_X_INK = 0xFFC6DDF7, MARK_Y = 0xFFD1A600, MARK_Y_INK = 0xFFFAF0C0,
             MARK_START = 0xFFEFF1EE, MARK_START_INK = 0xFF101010;
     static final int ALERT_BLACK = 0xFF000000, ALERT_CELL = 0xFF242624;
     /** Over the Thor's lower-screen HUD (its trainer): the HUD stays faintly visible under the frame. */

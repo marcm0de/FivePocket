@@ -143,6 +143,7 @@ final class MenuScenes {
     }
 
     static Scene build(Page page, Scene.Measure measure, Frame f) {
+        if (page.alert != null && page.alert.gameAlert) return gameAlert(page, measure, f.h);   // (1.3.0 reship: the game's own alert)
         Scene scene = new Scene();
         scene.panelW = f.w;
         scene.panelH = f.h;
@@ -720,6 +721,59 @@ final class MenuScenes {
      * The in-game menu's restart notice (DESIGN.md 5.8, the public build's drawing of the owner's alert, layout A): black, "alert"
      * in yellow, the message between two 150 x 3 rules at the measured places, "Continue" with A at the bottom right.
      */
+    /**
+     * The game alert's measures (1.3.0 reship; owner 2026-11-26 "scaling is off ... too low, compare against the other screens"): the
+     * heading as in the owner's template (Pricedown 124 px: 300 wide, 78 high), the text in the game's proportion to it (the heading is
+     * 0.28 of a text line's width in the owner's photo: 24 px), the rules as wide as the text plus GA_RULE_PAD a side, and the whole
+     * block centred where the other screens' alert block stands (GA_CENTRE); the prompts in the other screens' own strip (DEFAULT).
+     */
+    static final int GA_TITLE_PX = 124, GA_TITLE_H = 150, GA_TITLE_INK = 78, GA_TITLE_RAISE = 4, GA_TEXT_PX = 24, GA_LINE = 34,
+            GA_TEXT_W = 1100, GA_RULE_PAD = 80, GA_TITLE_TO_RULE = 38, GA_RULE_TO_TEXT = 14, GA_CENTRE = 502;
+
+    /**
+     * 1.3.0 reship (owner 2026-11-26: "add this for unsaved changes, the text from the second image should be used ... it will say this
+     * if they don't press save or discard"; "you used the first image as a template ... just do it the same way"): the game's own
+     * alert, drawn from the owner's template (layout A) - black, the "alert" heading in yellow (the disc's Pricedown when imported,
+     * else our heaviest weight), the text between two rules as wide as the text, and the answers only as the page's prompts (Yes A,
+     * No X, Cancel B: no highlighted answer, as in the game). Each prompt taps as its button.
+     */
+    static Scene gameAlert(Page page, Scene.Measure measure) {
+        return gameAlert(page, measure, H);
+    }
+
+    /** Fold: in a panel panelH high (Frame.screen): the block centred on the panel as on a 1080 screen, the prompts at its bottom. */
+    static Scene gameAlert(Page page, Scene.Measure measure, int panelH) {
+        ConfirmOverlay alert = page.alert;
+        Frame f = Frame.screen(panelH);
+        Scene scene = new Scene();
+        scene.panelW = f.w;
+        scene.panelH = f.h;
+        scene.layer(Scene.ALERT);
+        scene.fill(ALERT_BLACK);
+        String message = alert.title == null ? "" : alert.title;
+        if (alert.detail != null && !alert.detail.isEmpty()) message = message.isEmpty() ? alert.detail : message + "\n" + alert.detail;
+        java.util.List<String> lines = Scene.wrap(message, GA_TEXT_PX, Scene.REGULAR, GA_TEXT_W, measure);
+        float widest = 0;
+        for (String line : lines) widest = Math.max(widest, measure.width(line, GA_TEXT_PX, Scene.REGULAR));
+        int block = GA_TITLE_INK + GA_TITLE_TO_RULE + ALERT_RULE + GA_RULE_TO_TEXT + lines.size() * GA_LINE + GA_RULE_TO_TEXT + ALERT_RULE;
+        int top = f.h / 2 - (H / 2 - GA_CENTRE) - block / 2;
+        float inkCentre = top + GA_TITLE_INK / 2f;
+        scene.text(alert.heading != null && !alert.heading.isEmpty() ? alert.heading : ALERT_HEADING, 0,
+                Math.round(inkCentre + GA_TITLE_RAISE - GA_TITLE_H / 2f), W, GA_TITLE_H, GA_TITLE_PX, Scene.GAME_CASH, Scene.CENTER, ALERT_YELLOW);
+        int ruleW = Math.max(ALERT_RULE_W, Math.round(widest) + 2 * GA_RULE_PAD), rule = (W - ruleW) / 2;
+        int y = top + GA_TITLE_INK + GA_TITLE_TO_RULE;
+        scene.rect(rule, y, ruleW, ALERT_RULE, TEXT);
+        y += ALERT_RULE + GA_RULE_TO_TEXT;
+        for (String line : lines) {
+            scene.text(line, 0, y, W, GA_LINE, GA_TEXT_PX, Scene.REGULAR, Scene.CENTER, TEXT);
+            y += GA_LINE;
+        }
+        scene.rect(rule, y + GA_RULE_TO_TEXT, ruleW, ALERT_RULE, TEXT);
+        prompts(scene, page, measure, f);
+        scene.contentKey = "game-alert";
+        return scene;
+    }
+
     static Scene restartAlert(String message, Scene.Measure measure) {
         return restartAlert(message, measure, false);
     }

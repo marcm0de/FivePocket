@@ -551,7 +551,10 @@ final class LauncherScreen implements Screen, UiKit.Listener {
         // Menu revamp M1/M5: the list tabs in the game's own Enhanced Settings frame; M6a: the Play tab as the Enhanced landing;
         // settings/menu-classic keeps the console frame everywhere.
         if (classicMenus == null) classicMenus = new File(host.filesDir(), EnhancedScenes.CLASSIC_SWITCH).exists();
-        boolean enhanced = nav.tab() != ShellNav.PLAY && !classicMenus && page.alert == null;
+        // 1.3.0 reship (owner 2026-11-26: the save-changes alert redone against the newer template): a question on any tab
+        // (Save changes?, Restore original?, Import Saves...) is drawn in the Enhanced frame (EnhancedScenes.alertPage, SPEC §125) as the setup's
+        // questions are; only settings/menu-classic keeps the console alert.
+        boolean enhanced = !classicMenus && (nav.tab() != ShellNav.PLAY || page.alert != null);
         if (landing() && page.alert == null) view.show(LandingScenes.build(page, view));
         else if (enhanced) view.show(EnhancedScenes.build(page, view));
         else view.show(MenuScenes.build(page, view));

@@ -37,7 +37,9 @@ import java.util.List;
  */
 final class NavInput {
     static final int NONE = 0, UP = 1, DOWN = 2, LEFT = 3, RIGHT = 4, CONFIRM = 5, BACK = 6,
-            PAGE_PREV = 7, PAGE_NEXT = 8, MENU = 9, ALT = 10;
+            PAGE_PREV = 7, PAGE_NEXT = 8, MENU = 9, ALT = 10,
+            /** 1.3.0 reship (owner 2026-11-26): X, the game alert's "No" (the unsaved-settings alert); other screens ignore it. */
+            SECONDARY = 11;
 
     interface Sink { void onNav(int command, boolean repeat); }
 
@@ -220,6 +222,7 @@ final class NavInput {
             case 103: return PAGE_NEXT;  // KEYCODE_BUTTON_R1
             case 108: return MENU;       // KEYCODE_BUTTON_START
             case 100: return ALT;        // KEYCODE_BUTTON_Y
+            case 99: return SECONDARY;   // KEYCODE_BUTTON_X
             default: return NONE;
         }
     }

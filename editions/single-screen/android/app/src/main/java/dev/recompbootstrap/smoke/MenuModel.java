@@ -55,6 +55,9 @@ final class MenuModel {
     private static final String GROUP_WORLD = "World";
     private static final String[] RESTORE_BUTTONS = {"Restore", "Cancel"};
     private static final String[] SAVE_BUTTONS = {"Save", "Discard", "Keep editing"};
+    /** 1.3.0 reship (owner 2026-11-26, the game's own alert for unapplied settings): Yes (A) saves, No (X) discards, Cancel (B). */
+    static final String TEXT_UNSAVED = "You made changes but did not apply them. Would you like to apply them now? "
+            + "Selecting \"No\" will restore this menu to the last applied settings.";
     private static final String[] DRIFT_BUTTONS = {"Close"};
     private static final String[] IMPORT_BUTTONS = {"Replace my saves", "Cancel"};
     private String importDetail;
@@ -161,7 +164,8 @@ final class MenuModel {
      * number that is not a command; every other command is consumed, also when it changes nothing.
      */
     boolean nav(int command, boolean repeat) {
-        if (command < NavInput.UP || command > NavInput.ALT) return false;
+        if (command < NavInput.UP || command > NavInput.SECONDARY) return false;
+        if (command == NavInput.SECONDARY && overlay != OVERLAY_SAVE_QUESTION) return true;   // X answers only the unsaved alert ("No")
         if (phase != PHASE_READY) {
             if (command != NavInput.BACK) return true;
             pending = ACTION_LEAVE;
@@ -191,7 +195,7 @@ final class MenuModel {
                 }
                 // Keep editing first: a player backing out who presses A at once writes nothing and loses nothing
                 // (vm-pad-hold D7); Save and Discard are a deliberate step to the left.
-                open(OVERLAY_SAVE_QUESTION, SAVE_BUTTONS.length - 1);
+                open(OVERLAY_SAVE_QUESTION, 0);   // 1.3.0 reship: the game's alert, A = Yes (was Keep editing first, D7)
         }
         return true;
     }
@@ -326,10 +330,24 @@ final class MenuModel {
     private void overlayNav(int command, boolean repeat) {
         // Only a fresh press moves the highlight of a question: a direction held from before it opened, or held on,
         // must not walk to another answer (menu-input-fixes M2).
-        if (repeat && (command == NavInput.LEFT || command == NavInput.RIGHT)) return;
-        if (command == NavInput.LEFT) {
+        // 1.3.0 reship: the Enhanced frame lists the answers top to bottom: UP / DOWN move as LEFT / RIGHT do.
+        if (repeat && (command == NavInput.LEFT || command == NavInput.RIGHT || command == NavInput.UP || command == NavInput.DOWN)) return;
+        if (overlay == OVERLAY_SAVE_QUESTION) {
+            // 1.3.0 reship (owner 2026-11-26): the game's own alert answers by button - A Yes (save), X No (discard), B Cancel - with no
+            // highlighted answer: it opens on Yes (open() below), directions change nothing, X chooses No. A tap still names its answer
+            // (tapOverlayButton sets the focus first).
+            if (command == NavInput.UP || command == NavInput.DOWN || command == NavInput.LEFT || command == NavInput.RIGHT) return;
+            if (command == NavInput.SECONDARY) {
+                if (repeat) return;
+                overlayFocus = 1;
+                command = NavInput.CONFIRM;
+            }
+        } else if (command == NavInput.SECONDARY) {
+            return;
+        }
+        if (command == NavInput.LEFT || command == NavInput.UP) {
             if (overlayFocus > 0) overlayFocus--;
-        } else if (command == NavInput.RIGHT) {
+        } else if (command == NavInput.RIGHT || command == NavInput.DOWN) {
             if (overlayFocus < overlayButtonCount() - 1) overlayFocus++;
         } else if (command == NavInput.BACK) {
             overlay = OVERLAY_NONE;   // Cancel, Keep editing or Close
@@ -688,7 +706,7 @@ final class MenuModel {
 
     String overlayTitle() {
         return overlay == OVERLAY_RESTORE ? "Put every setting back to the original?"
-                : overlay == OVERLAY_SAVE_QUESTION ? "Save changes?"
+                : overlay == OVERLAY_SAVE_QUESTION ? TEXT_UNSAVED
                 : overlay == OVERLAY_DRIFT_LIST ? "Setting files that differ from your saved settings"
                 : overlay == OVERLAY_IMPORT_SAVES ? "Replace your saves with these?" : null;
     }
@@ -727,7 +745,7 @@ final class MenuModel {
         if (phase != PHASE_READY) return "B Back";
         if (overlay == OVERLAY_DRIFT_LIST) return "A Close   B Close   Up/Down Scroll";
         if (overlay == OVERLAY_RESTORE || overlay == OVERLAY_IMPORT_SAVES) return "A Select   B Cancel   Left/Right Move";
-        if (overlay == OVERLAY_SAVE_QUESTION) return "A Select   B Keep editing   Left/Right Move";
+        if (overlay == OVERLAY_SAVE_QUESTION) return "A Yes   X No   B Cancel";
         if (!rowEnabled(focus)) return "Not available (see the line under the row)   B Back   L1/R1 Group   Y Restore original   Start Save";
         return "A Select   B Back   Left/Right Change   L1/R1 Group   Y Restore original   Start Save";
     }

@@ -433,6 +433,6 @@ final class ModsScreen implements Screen {
 
     private void render() {
         if (root == null) return;
-        root.show(MenuScenes.build(model.page(), root));
+        root.show(EnhancedScenes.build(model.page(), root));   // 1.3.0 reship: the Enhanced frame (SPEC §125), as Setup and Settings
     }
 }

@@ -43,6 +43,8 @@ final class Scene {
     static final int GAME = 5;
     /** Menu revamp M6: the game's condensed face, Chalet Comprimé (the disc's $Font2_cond): the landing's title and tile captions (E-F2). */
     static final int GAME_COND = 6;
+    /** 1.3.0 reship: the disc's Pricedown ($gtaCash, UiAssets.CASH_FONT): the game alert's "alert" heading; HEAVY without it. */
+    static final int GAME_CASH = 7;
 
     /** Width of a text in design pixels at a text size in design pixels, in one of the faces above. */
     interface Measure {

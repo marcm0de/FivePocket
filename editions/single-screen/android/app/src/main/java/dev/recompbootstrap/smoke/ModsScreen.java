@@ -441,6 +441,9 @@ final class ModsScreen implements Screen {
         // (Missing here until the 2026-11-06 Fold device check found the strip on this page with no controller connected.)
         MenuScenes.Page page = model.page();
         page.touchIcons = root.touchIcons();
-        root.show(MenuScenes.build(page, root, root.frame()));
+        MenuLayout.Frame sf = root.frame();   // 1.3.0 reship: the Enhanced frame (SPEC §125), as Setup and Settings
+        float sk = page.touchIcons ? EnhancedScenes.touchScale(root.xdpi(), root.unit(), sf.h) : 1f;
+        Scene ss = EnhancedScenes.build(page, root, sf.h, sk, page.touchIcons);
+        ss.panelW = sf.w; ss.panelH = sf.h; root.show(ss);
     }
 }

@@ -9,7 +9,7 @@ final class PublicGameCode implements ShipBundle {
     // The portable library of the build the desktop builder makes for this app (thor-builder, 2026-11-05): linked without
     // debug sections, with the attempt's own build id, name strings removed; its loaded sections equal the attempt's library.
     // Written by local-analysis/builder/thor-rc1/make_public_config.py from the bundle. The package check binds the record to it.
-    static final String PORTABLE_LIBRARY_SHA256 = "9f77c6c8e8134cb9921a1f5048d9d3826a72dc81e32ff2d323248d1e291f25cf";
+    static final String PORTABLE_LIBRARY_SHA256 = "8cf63e5b7db47d25b8ebb15332154b98aa8542ce8cf0c599d86e7c2543b06a8d";
     static final String CONFIG = "public/config.json", REQUEST = "public/start-request.bin";
     /**
      * One app for TU players (owner 2026-11-24): besides its 1.0 profile (CONFIG, REQUEST) the APK may carry whole other pinned

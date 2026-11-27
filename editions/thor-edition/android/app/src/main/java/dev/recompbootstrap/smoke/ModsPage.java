@@ -358,6 +358,8 @@ final class ModsPage {
         }
         if (asking != null) {
             if (command == NavInput.LEFT || command == NavInput.RIGHT) answer = 1 - answer;
+            else if (command == NavInput.UP) answer = 0;     // 1.3.0 reship: the answers listed top to bottom (Remove, Keep)
+            else if (command == NavInput.DOWN) answer = 1;
             else if (command == NavInput.BACK) asking = null;
             else if (command == NavInput.CONFIRM) answerTap(answer);
             return true;

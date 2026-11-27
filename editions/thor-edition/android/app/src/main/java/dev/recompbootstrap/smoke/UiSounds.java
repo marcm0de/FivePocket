@@ -22,8 +22,9 @@ final class UiSounds {
         pool.setOnLoadCompleteListener((p, sample, status) -> {
             for (int i = 0; i < ids.length; ++i) if (ids[i] == sample) ready[i] = status == 0;
         });
+        float gain = MenuSounds.recordedGain(filesDir);   // (1.3.0 reship: the library's recordings at the disc's level)
         for (int i = 0; i < ids.length; ++i) {
-            File f = MenuSounds.usable(filesDir, i);
+            File f = MenuSounds.levelled(filesDir, i, gain);
             ids[i] = f == null ? 0 : pool.load(f.getAbsolutePath(), 1);
         }
     }
