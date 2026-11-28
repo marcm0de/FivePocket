@@ -51,6 +51,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import disc_builder as db
 import host_support
 import checkout_refusal
+import windows_job
 
 
 class Refusal(Exception):
@@ -792,10 +793,48 @@ def fetch_app(release, cache, edition, out, archive=None, opener=None):
 
 
 WINDOWS_PATH_LIMIT = 80
+WINDOWS_MAX_CLUSTER_BYTES = 65536   # 64 KiB; large exFAT drives default to 128 KiB-1 MiB clusters, turning ~114k tiny shader files into 30-100+ GB on disk
 
 
 def windows_path_too_long(path):
     return sys.platform == 'win32' and len(str(Path(path).resolve())) > WINDOWS_PATH_LIMIT
+
+
+def windows_cluster_bytes(path) -> int | None:
+    """Allocation unit (cluster) size in bytes for path's volume on Windows, else None."""
+    if sys.platform != 'win32':
+        return None
+    try:
+        import ctypes
+        probe = Path(path)
+        while not probe.exists() and probe.parent != probe:
+            probe = probe.parent
+        resolved = str(probe.resolve())
+        k32 = ctypes.windll.kernel32
+        buf = ctypes.create_unicode_buffer(max(260, len(resolved) + 16))
+        if k32.GetVolumePathNameW(resolved, buf, len(buf)):
+            vol = buf.value
+        else:
+            drive = os.path.splitdrive(resolved)[0]
+            vol = (drive + '\\') if drive else None
+        if not vol:
+            return None
+        spc, bps, fc, tc = (ctypes.c_uint32() for _ in range(4))
+        if not k32.GetDiskFreeSpaceW(vol, ctypes.byref(spc), ctypes.byref(bps), ctypes.byref(fc), ctypes.byref(tc)):
+            return None
+        size = int(spc.value) * int(bps.value)
+        return size if size > 0 else None
+    except (OSError, AttributeError, ValueError):
+        return None
+
+
+def windows_cluster_problem(path) -> str | None:
+    cluster = windows_cluster_bytes(path)
+    if cluster is not None and cluster > WINDOWS_MAX_CLUSTER_BYTES:
+        return (f'the drive for {path} uses {cluster // 1024} KB allocation units (common on exFAT drives), '
+                "which expands the build's ~114,000 small shader files from ~12 GB to tens of GB on disk; "
+                'move the builder folder to an NTFS drive (for example C:\\FivePocket) and run it from there')
+    return None
 
 
 WINDOWS_MAX_PATH = 259      # the longest path Windows takes without its long-path setting (MAX_PATH 260 with the terminator)
@@ -939,6 +978,9 @@ def check(release, root, work, cache, target=None, title_update=False):
         raise Refusal("Windows on ARM can't build a bit-identical release with the x64 Android toolchain (emulated floating point "
                       "differs); use an x64 PC")
     check_paths(work, cache)
+    cluster_problem = windows_cluster_problem(work)
+    if cluster_problem:
+        raise Refusal(cluster_problem)
     estimate = release.get('estimates', {})
     need = estimate.get('min_free_bytes')
     probe = work
@@ -1177,6 +1219,10 @@ def guided(release_path, dropped=None, ask=input, wait_at_end=False, cache=None)
             'Move the whole unpacked folder (the one holding README.txt and the builder folder) to C:\\FivePocket, so that builder.exe\n'
             'is C:\\FivePocket\\builder\\builder.exe, then start builder.exe again. Nothing was built.')
         return finish(2)
+    cluster_problem = windows_cluster_problem(default_work(root))
+    if cluster_problem:
+        say(f'REFUSED: {cluster_problem}. Nothing was built.')
+        return finish(2)
     profiles = release.get('profiles', {})
     apps = [t for t in sorted(profiles) if t in APP_TARGETS]
     names = {'ios': 'the iOS app (iPhone, iPad)', 'duo': 'the Duo app', 'thor': 'the Thor Edition code bundle',
@@ -1388,4 +1434,5 @@ def main(argv=None):
 
 
 if __name__ == '__main__':
+    windows_job.attach_current_process()
     raise SystemExit(main())

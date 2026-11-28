@@ -11,9 +11,13 @@ This release is for Android (FivePocket and the Thor Edition) and the Windows bu
 
 The first 1.3.0 downloads were replaced. **Download the apps and the builder again** and install the app over the old one.
 
-- **Title Update 27 now builds on Windows.** The first 1.3.0 builders stopped every title-update build before it started
-  ("needs the update disc (not given)"), and their code generator also lacked five vector instructions the title update uses.
-  Both are fixed; a title-update build now runs to the end on Windows.
+- **Title Update 27 now builds on Windows (CLI and builder window).** The first 1.3.0 builders stopped every title-update build before it started
+  ("needs the update disc (not given)"), their code generator lacked five vector instructions the title update uses, and the
+  builder window hid the optional Title Update and DLC pickers. All three are fixed; Title Update 27 + DLC now builds from
+  both the builder window and the command line on Windows.
+- **Windows builder reliability:** cancelling or closing the builder now terminates all child compiler processes via Windows
+  Job Objects (no orphaned `clang++`/`python` processes), and the builder now detects large-cluster exFAT drives (> 64 KB
+  allocation units) early so ~114k small shader files don't expand to tens of GB on disk (use an NTFS drive such as `C:\FivePocket`).
 - **Unsaved settings**: leaving Settings with changes you have not saved now asks with the game's own alert:
   A saves, X discards, B goes back.
 - **Menu sounds when moving through the menus**: the moves (up, down, left, right) now play the game's own tick, recorded

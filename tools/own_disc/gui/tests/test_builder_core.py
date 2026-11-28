@@ -292,6 +292,42 @@ class Plan(Synthetic):
         self.assertEqual(builds[updated.ident][-4:], ['--title-update', str(update), '--dlc', str(dlc)])
         self.assertFalse({'--title-update', '--dlc'} & set(builds[self.edition.ident]))
 
+    def test_title_update_profiles_in_release_json_enables_optional_update_and_dlc(self):
+        fx, release_path = self.package('dual-tu')
+        tu_prof = json.loads((fx.side / 'profile.json').read_text())
+        tu_prof['id'] = 'fixture-tu27'
+        tu_prof['games'][0]['title_update'] = {'label': 'TU 27', 'executable_sha256': tu_prof['games'][0]['executable_sha256'],
+                                               'xexp_member': 'disc002/default.xexp', 'xexp_sha256': 'a' * 64}
+        tu_prof['games'][0]['dlc'] = {'title_id': '12345678'}
+        tu_prof['stages'].append({'id': 'tu-only-stage', 'adapter': 'command', 'argv': ['${python}', '-c', 'pass']})
+        (fx.side / 'profile-tu.json').write_text(json.dumps(tu_prof))
+        rel = json.loads(release_path.read_text())
+        rel['title_update_profiles'] = {'default': 'profile-tu.json'}
+        rel['files'].append({'path': 'profile-tu.json', 'sha256': db.sha256_file(fx.side / 'profile-tu.json')})
+        release_path.write_text(json.dumps(rel))
+
+        ed = [e for e in core.discover_editions([fx.side]) if e.available][0]
+        self.assertEqual((ed.update, ed.dlc), ('taken', True))
+        self.assertIn('tu-only-stage', ed.tu_stages)
+        self.assertTrue(ed.dlc_needs_update)
+
+        update, dlc = self.root / 'tu00000009_00000000', self.root / 'my dlc'
+        # 1.0 build with no extras still works and uses base stages
+        plan_10 = core.make_plan([ed], self.discs, self.root / 'out10', self.cache, licences_accepted=False)
+        b10 = next(s for s in plan_10 if s.kind == 'build')
+        self.assertFalse({'--title-update', '--dlc'} & set(b10.words))
+        self.assertNotIn('tu-only-stage', b10.stages)
+        # DLC without Title Update refused cleanly when DLC is only in the TU profile
+        with self.assertRaises(core.PlanError) as refused:
+            core.make_plan([ed], self.discs, self.root / 'outdlc', self.cache, licences_accepted=False, extras={'dlc': dlc})
+        self.assertIn('Choose your Title update in the sidebar', str(refused.exception))
+        # TU + DLC passes both flags and shows TU stages
+        plan_tu = core.make_plan([ed], self.discs, self.root / 'outtu', self.cache, licences_accepted=False,
+                                 extras={'update': update, 'dlc': dlc})
+        btu = next(s for s in plan_tu if s.kind == 'build')
+        self.assertEqual(btu.words[-4:], ['--title-update', str(update), '--dlc', str(dlc)])
+        self.assertIn('tu-only-stage', btu.stages)
+
     def test_the_window_says_early_when_a_title_update_or_dlc_pick_is_the_wrong_file(self):
         tu = self.root / 'tu00000009_00000000'
         fixture.stfs_package(tu)

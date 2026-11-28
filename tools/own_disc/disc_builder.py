@@ -76,6 +76,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))      # the host helper lies beside this file
 import host_support  # noqa: E402
 import checkout_refusal  # noqa: E402
+import windows_job  # noqa: E402
 
 TOOL_ROOT = host_support.package_root(__file__)
 PROFILE_SCHEMA = 'own-disc-pipeline/1'
@@ -1027,7 +1028,7 @@ def run_stage(stage: dict, ctx: Context, outputs: dict[str, Path], supply: dict,
         cwd = Path(ctx.expand(stage['cwd'])) if stage.get('cwd') else ctx.repo
         with open(log, 'wb') as out:
             try:
-                r = subprocess.run(argv, cwd=cwd, env=env, stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, **priority_options)
+                r = windows_job.run_in_job(argv, cwd=cwd, env=env, stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, **priority_options)
             except OSError as e:
                 raise BuilderError(f'stage {sid}: cannot start {Path(argv[0]).name}: {e}')
         extra['log'] = str(log)

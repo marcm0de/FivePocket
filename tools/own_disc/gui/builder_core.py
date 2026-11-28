@@ -35,6 +35,7 @@ if str(OWN_DISC) not in sys.path:
 import builder as B                     # noqa: E402  the front end the command line runs (read-only helpers only)
 import disc_builder as db               # noqa: E402
 import checkout_refusal                 # noqa: E402
+import windows_job                      # noqa: E402
 
 SESSION_SCHEMA = 'fivepocket-gui-session/1'
 SESSION_NAME = 'gui-session.json'
@@ -81,6 +82,8 @@ class Edition:
     stages: tuple = ()               # the profile's stage ids, in order (for the progress view)
     update: str = ''                 # the player's title update: '' not taken, 'taken' (some game of the profile), 'needed' (every game)
     dlc: bool = False                # the profile takes the player's DLC packs
+    tu_stages: tuple = ()            # stage ids when building with the release's title-update profile
+    dlc_needs_update: bool = False   # DLC is taken only by the title-update profile (not the base 1.0 profile)
 
     @property
     def ident(self) -> str:
@@ -164,13 +167,18 @@ def discover_editions(paths) -> list:
             entries.append((key, None, default))
             preferred[str(root)] = _package_edition(root) or key
             entries += [(t, t, rel) for t, rel in profiles.items() if rel != default]
+        tu_profiles = release.get('title_update_profiles') if isinstance(release.get('title_update_profiles'), dict) else {}
         for key, target, rel in entries:
             _, stages, games = _profile_facts(root, rel)
+            tu_rel = tu_profiles.get(target or 'default', '')
+            _, tu_stages, tu_games = _profile_facts(root, tu_rel) if tu_rel else ('', (), [])
             kind = 'ipa' if key in B.APP_TARGETS else 'bundle'
             tu = [isinstance(g, dict) and 'title_update' in g for g in games]
+            base_dlc = any(isinstance(g, dict) and bool(g.get('dlc')) for g in games)
+            tu_dlc = any(isinstance(g, dict) and bool(g.get('dlc')) for g in tu_games)
             editions.append(Edition(key, EDITION_LABELS.get(key, key), kind, root, release_path, target, not reason, reason, stages,
-                                    'needed' if tu and all(tu) else ('taken' if any(tu) else ''),
-                                    any(isinstance(g, dict) and bool(g.get('dlc')) for g in games)))
+                                    'needed' if tu and all(tu) else ('taken' if (any(tu) or bool(tu_rel)) else ''),
+                                    base_dlc or tu_dlc, tu_stages, (not base_dlc) and tu_dlc))
     for key in ('thor', 'fold'):                    # the Android editions: listed, greyed, where no package here makes them
         if not any(e.key == key and e.kind == 'bundle' for e in editions):
             editions.append(Edition(key, EDITION_LABELS[key], 'bundle', None, None, None, False, ANDROID_ELSEWHERE))
@@ -189,12 +197,16 @@ def games_of(editions) -> list:
         if e.root is None:
             continue
         release = _read_json(e.release_path)
-        rel = B.profile_of(release, e.target) if e.target else release['profile']
-        for g in _profile_facts(e.root, rel)[2]:
-            key = (g.get('executable', 'default.xex'), g.get('executable_sha256'))
-            if key not in seen:
-                seen.add(key)
-                games.append(g)
+        rels = [B.profile_of(release, e.target) if e.target else release['profile']]
+        tu_rel = B.profile_of(release, e.target, title_update=True)
+        if tu_rel not in rels:
+            rels.append(tu_rel)
+        for rel in rels:
+            for g in _profile_facts(e.root, rel)[2]:
+                key = (g.get('executable', 'default.xex'), g.get('executable_sha256'))
+                if key not in seen:
+                    seen.add(key)
+                    games.append(g)
     return games
 
 
@@ -424,6 +436,8 @@ def make_plan(editions, discs: dict, out, cache, licences_accepted: bool, fetche
         problems.append(f'Unknown app icon {app_icon!r}')
     problems += [f'Choose your {EXTRA_LABELS["update"]} in the sidebar: {e.label} is built for the game with its title update'
                  for e in editions if e.update == 'needed' and 'update' not in extras]
+    problems += [f'Choose your {EXTRA_LABELS["update"]} in the sidebar: DLC packs require the title update for {e.label}'
+                 for e in editions if e.dlc_needs_update and 'dlc' in extras and 'update' not in extras]
     if problems:
         raise PlanError('; '.join(dict.fromkeys(problems)))
     fetched = dict(fetched or {})
@@ -452,7 +466,8 @@ def make_plan(editions, discs: dict, out, cache, licences_accepted: bool, fetche
         if (str(e.release_path), e.target) not in checked:           # one check per package and target
             checked.add((str(e.release_path), e.target))
             steps.append(Step(f'check:{e.ident}', 'check', 'Check this computer', words=['check'] + target, **base))
-        steps.append(Step(f'build:{e.ident}', 'build', 'Build', stages=list(e.stages),
+        build_stages = list(e.tu_stages) if (e.tu_stages and 'update' in extras) else list(e.stages)
+        steps.append(Step(f'build:{e.ident}', 'build', 'Build', stages=build_stages,
                           words=['build'] + target + ['--play-disc', str(discs['play']), '--install-disc', str(discs['install']),
                                                      '--out', str(where)] + (['--app-icon', app_icon, '--edition', e.key] if app_icon else [])
                                 + (['--title-update', str(extras['update'])] if e.update and 'update' in extras else [])
@@ -636,26 +651,50 @@ def _start(argv, cwd, env):
     return subprocess.Popen(argv, **kw)
 
 
+def _attach_job(process):
+    """On Windows, puts a real spawned builder process into a kill-on-close Job Object; None elsewhere or on failure."""
+    if os.name != 'nt' or not isinstance(process, subprocess.Popen):
+        return None
+    job = windows_job.WindowsJob()
+    if not job.active:
+        return None
+    if not job.assign_process(process):
+        job.close()
+        return None
+    return job
+
+
 class Runner:
     """Runs a session's unfinished steps in order, one builder process at a time; stops at the first failure.
     events(Event) is called from the runner's thread. cancel() may be called from any thread."""
 
-    def __init__(self, session: Session, events=lambda e: None, popen=None, kill=None, command=None):
+    def __init__(self, session: Session, events=lambda e: None, popen=None, kill=None, command=None, job_factory=None):
         self.session = session
         self.events = events
         self.popen = popen or (lambda argv, **kw: _start(argv, kw.get('cwd'), kw.get('env')))
         self.kill = kill or _kill_tree
         self.command = command
+        self.job_factory = job_factory if job_factory is not None else _attach_job
         self._cancel = threading.Event()
         self._process = None
+        self._job = None
         self._lock = threading.Lock()
+
+    def _stop_current(self, p, job):
+        terminated = False
+        if job is not None:
+            terminated = bool(job.terminate(1))
+            job.close()
+        if p is not None and not terminated:
+            self.kill(p)
 
     def cancel(self):
         self._cancel.set()
         with self._lock:
             p = self._process
-        if p is not None:
-            self.kill(p)
+            job = self._job
+        if p is not None or job is not None:
+            self._stop_current(p, job)
 
     @property
     def cancelled(self) -> bool:
@@ -718,27 +757,34 @@ class Runner:
             s.save()
             self.events(Event('step-end', step.id, {'state': step.state, 'code': None}))
             return False
+        job = self.job_factory(p)
         with self._lock:
             self._process = p
+            self._job = job
         if self.cancelled:                         # cancelled while it was being started
-            self.kill(p)
+            self._stop_current(p, job)
         bundle_id = None
-        for raw in p.stdout:
-            line = raw.rstrip('\r\n')
-            step.last_lines = (step.last_lines + [line])[-60:]
-            self._log(line)
-            self.events(Event('line', step.id, {'text': line}))
-            stage = parse_stage(line)
-            if stage:
-                self.events(Event('stage', step.id, {'stage': stage[0], 'status': stage[1]}))
-            m = BUNDLE_ID_LINE.match(line)
-            if m:
-                bundle_id = m.group(2)
-        code = p.wait()
-        if hasattr(p.stdout, 'close'):
-            p.stdout.close()
-        with self._lock:
-            self._process = None
+        try:
+            for raw in p.stdout:
+                line = raw.rstrip('\r\n')
+                step.last_lines = (step.last_lines + [line])[-60:]
+                self._log(line)
+                self.events(Event('line', step.id, {'text': line}))
+                stage = parse_stage(line)
+                if stage:
+                    self.events(Event('stage', step.id, {'stage': stage[0], 'status': stage[1]}))
+                m = BUNDLE_ID_LINE.match(line)
+                if m:
+                    bundle_id = m.group(2)
+            code = p.wait()
+        finally:
+            if hasattr(p.stdout, 'close'):
+                p.stdout.close()
+            with self._lock:
+                self._process = None
+                self._job = None
+            if job is not None:
+                job.close()
         step.exit_code, step.seconds = code, round(time.monotonic() - started, 1)
         if self.cancelled:
             step.state = 'cancelled'

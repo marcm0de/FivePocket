@@ -294,6 +294,10 @@ class AppState:
         if self.selected() and not space['enough']:              # the check step would refuse: say it before
             problems.append(f'Not enough free space: the build needs {space["required_text"]} on the drive of the builder folder, '
                             f'which has {space["available_text"]} free')
+        if self.selected():
+            cluster_problem = core.B.windows_cluster_problem(core.B.default_work(self.selected()[0].root))
+            if cluster_problem:
+                problems.append(cluster_problem[0].upper() + cluster_problem[1:])
         if not problems:
             try:
                 self.plan()

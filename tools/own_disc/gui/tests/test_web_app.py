@@ -83,6 +83,17 @@ class Window(t.Synthetic):
         self.assertFalse(s['space']['enough'])
         self.assertIn('Not enough free space', s['ready_problems'][-1])
 
+    def test_large_windows_cluster_size_holds_the_build_in_the_window(self):
+        app = self.app()
+        self.answers = [str(self.fx.disc), str(self.install)]
+        app.act('choose_disc', {'slot': 'play'})
+        app.act('choose_disc', {'slot': 'install'})
+        wait(app, lambda s: s['primary']['enabled'])
+        with unittest.mock.patch.object(web_app.core.B, 'windows_cluster_bytes', return_value=1024 * 1024):
+            s = app.snapshot()
+        self.assertFalse(s['primary']['enabled'])
+        self.assertTrue(any('1024 KB allocation units' in p and 'NTFS drive' in p for p in s['ready_problems']), s['ready_problems'])
+
     def test_a_failed_step_is_reported_once_with_the_builder_s_own_words(self):
         app = self.app()
         self.answers = [str(self.fx.disc), str(self.install)]
@@ -204,6 +215,45 @@ class Window(t.Synthetic):
         self.assertEqual(builds[0][-4:], ['--title-update', str(tu), '--dlc', str(packs)])
         app.act('clear_extra', {'slot': 'dlc'})
         self.assertNotIn('--dlc', [s.words for s in app.plan() if s.kind == 'build'][0])
+
+    def test_title_update_profiles_in_release_json_show_optional_extras_in_state(self):
+        fx2, _ = self.package('dual')
+        tu_prof = json.loads(json.dumps(fx2.profile))
+        tu_prof['games'][0].update(
+            title_update={'label': 'Fake update 27', 'executable_sha256': fx2.profile['games'][0]['executable_sha256'],
+                          'executable_size': 1, 'files': [{'path': 'default.xexp', 'size': 1, 'sha256': '0' * 64}]},
+            dlc={'title_id': '12345678'})
+        tu_path = fx2.side / 'profile-tu.json'
+        tu_path.write_text(json.dumps(tu_prof), encoding='utf-8')
+        rel_path = fx2.side / 'release.json'
+        rel = json.loads(rel_path.read_text(encoding='utf-8'))
+        rel['files'].append({'path': 'profile-tu.json', 'sha256': t.core.B.db.sha256_file(tu_path)})
+        rel['title_update_profiles'] = {'default': 'profile-tu.json'}
+        rel_path.write_text(json.dumps(rel), encoding='utf-8')
+        app = web_app.AppState([str(fx2.side)], choose=lambda title, folder, *f: self.answers.pop(0), gui_root=self.gui_root,
+                               backdrop_dirs=[self.root / 'bd'])
+        extras = {x['slot']: x for x in app.snapshot()['extras']}
+        self.assertEqual({k: (x['shown'], x['needed']) for k, x in extras.items()},
+                         {'update': (True, False), 'dlc': (True, False)})
+        # without a title update chosen, a 1.0 build still plans cleanly
+        app.discs = {'play': fx2.disc, 'install': self.install}
+        app.fetched = {str(rel_path): True}
+        self.assertEqual(app.ready_problems(), [])
+        # picking DLC alone without a title update blocks build with a clear problem
+        packs = self.root / 'my dlc2'
+        packs.mkdir()
+        t.fixture.stfs_package(packs / 'ABC123', content_type=2, metadata_version=2)
+        self.answers.append(str(packs))
+        app.act('choose_extra', {'slot': 'dlc', 'folder': True})
+        self.assertTrue(any('title update' in p.lower() for p in app.ready_problems()), app.ready_problems())
+        # adding the title update unblocks and passes both flags
+        tu = self.root / 'tu00000027_00000000'
+        t.fixture.stfs_package(tu)
+        self.answers.append(str(tu))
+        app.act('choose_extra', {'slot': 'update'})
+        self.assertEqual(app.ready_problems(), [])
+        builds = [s.words for s in app.plan() if s.kind == 'build']
+        self.assertEqual(builds[0][-4:], ['--title-update', str(tu), '--dlc', str(packs)])
 
     def test_a_window_opens_on_its_own_packages_edition_beside_another_package(self):
         fold, _ = self.package('single', profile_id='fivepocket-v1944-3')

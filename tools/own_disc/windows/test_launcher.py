@@ -108,6 +108,34 @@ class Launcher(unittest.TestCase):
         # with arguments it does not ask
         self.assertNotIn('Press Enter', self.run_launcher(['x']).stderr.decode('utf-8', 'replace'))
 
+    def test_killing_builder_exe_terminates_descendants_via_job_object(self):
+        import time
+        pid_file = self.front.parent / 'grandchild.pid'
+        self.front.write_text(
+            'import subprocess, sys, time\n'
+            f'grand = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])\n'
+            f'open({str(pid_file)!r}, "w", encoding="utf-8", newline="\\n").write(str(grand.pid))\n'
+            'time.sleep(60)\n',
+            encoding='utf-8', newline='\n',
+        )
+        proc = subprocess.Popen([str(self.exe), 'build'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        deadline = time.monotonic() + 15
+        while not pid_file.is_file() or not pid_file.read_text(encoding='utf-8').strip():
+            self.assertLess(time.monotonic(), deadline, 'grandchild did not start')
+            time.sleep(0.05)
+        grand_pid = int(pid_file.read_text(encoding='utf-8').strip())
+        proc.kill()
+        proc.wait(timeout=10)
+        # Check via tasklist that grandchild_pid is gone (Windows kernel closed the Job Object on builder.exe exit)
+        end = time.monotonic() + 10
+        while time.monotonic() < end:
+            out = subprocess.run(['tasklist', '/FI', f'PID eq {grand_pid}', '/NH'], capture_output=True, text=True).stdout
+            if str(grand_pid) not in out:
+                break
+            time.sleep(0.1)
+        out = subprocess.run(['tasklist', '/FI', f'PID eq {grand_pid}', '/NH'], capture_output=True, text=True).stdout
+        self.assertNotIn(str(grand_pid), out, f'grandchild {grand_pid} survived builder.exe kill!')
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -517,7 +517,7 @@ class Package(unittest.TestCase):
         # shipped inside the artifact, not a stale previously built archive.
         artifact = self.root / 'builder.pyz'
         with zipfile.ZipFile(artifact, 'w') as z:
-            for name in ('builder.py', 'disc_builder.py', 'host_support.py', 'checkout_refusal.py'):
+            for name in ('builder.py', 'disc_builder.py', 'host_support.py', 'checkout_refusal.py', 'windows_job.py'):
                 z.write(SRC / 'tools/own_disc' / name, name)
             z.writestr('__main__.py', 'import builder\nraise SystemExit(builder.main())\n')
         result = subprocess.run([sys.executable, str(artifact), '--release', str(release), '--cache', str(self.cache),
@@ -1366,6 +1366,25 @@ class Package(unittest.TestCase):
         self.assertEqual(prompts, [])                                         # asked nothing: told before any question
         self.assertFalse(default.exists())                                    # nothing built
         self.assertNotIn('--work', said)
+
+    def test_63_large_windows_cluster_size_refused_early(self):
+        # 2026-11-27 Discord #help-thor: external exFAT drive with 512 KB-1 MB allocation units turned 11.7 GB (~114k tiny
+        # shader files) into 94 GB on disk. check and guided mode refuse volumes with clusters > 64 KiB upfront.
+        fx, release = self.packaged()
+        with mock.patch.object(b, 'windows_cluster_bytes', return_value=512 * 1024):
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                code = b.main(['--release', str(release), '--cache', str(self.cache), 'check', '--work', str(fx.work)])
+            self.assertEqual(code, 2, out.getvalue())
+            self.assertIn('512 KB allocation units', out.getvalue())
+            self.assertIn('NTFS drive', out.getvalue())
+            code, said, prompts = self.guided_run(release, [str(fx.disc)])
+            self.assertEqual(code, 2, said)
+            self.assertIn('512 KB allocation units', said)
+            self.assertEqual(prompts, [])
+        # 4 KiB and 64 KiB clusters are accepted
+        for ok_size in (4096, 65536, None):
+            with mock.patch.object(b, 'windows_cluster_bytes', return_value=ok_size):
+                self.assertIsNone(b.windows_cluster_problem(fx.work))
 
     def test_61_paths_pasted_or_dropped_onto_a_terminal_are_read_as_paths(self):
         self.assertEqual(b.clean_path('  "C:\\Games\\My Discs\\Disc2-Play.iso"  '), 'C:\\Games\\My Discs\\Disc2-Play.iso')

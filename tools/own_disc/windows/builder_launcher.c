@@ -55,6 +55,26 @@ static void wait_for_a_key(void) {
     (void)getwchar();
 }
 
+/* Creates an anonymous, non-inheritable Job Object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE so that if builder.exe is
+   terminated (or if python.exe is killed and builder.exe closes the job), every descendant (portable_compile,
+   replay_build, clang++, ld.lld, XenonRecomp) is terminated automatically with no orphans left behind. */
+static HANDLE create_kill_on_close_job(void) {
+    HANDLE job = CreateJobObjectW(NULL, NULL);
+    if (!job) {
+        fwprintf(stderr, L"builder: warning: CreateJobObjectW failed (error %lu); child processes will not be tracked in a job\n", GetLastError());
+        return NULL;
+    }
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION info;
+    ZeroMemory(&info, sizeof info);
+    info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, &info, sizeof info)) {
+        fwprintf(stderr, L"builder: warning: SetInformationJobObject failed (error %lu); child processes will not be tracked in a job\n", GetLastError());
+        CloseHandle(job);
+        return NULL;
+    }
+    return job;
+}
+
 int wmain(int argc, wchar_t **argv) {
     static wchar_t self[MAX_COMMAND], folder[MAX_COMMAND], python[MAX_COMMAND], script[MAX_COMMAND], tools[MAX_COMMAND];
     static wchar_t command[MAX_COMMAND];
@@ -95,18 +115,40 @@ int wmain(int argc, wchar_t **argv) {
         if (!append_argument(command, MAX_COMMAND, &at, fixed[i])) goto too_long;
     for (int i = 1; i < argc; i++)
         if (!append_argument(command, MAX_COMMAND, &at, argv[i])) goto too_long;
+    HANDLE job = create_kill_on_close_job();
     STARTUPINFOW start;
     PROCESS_INFORMATION child;
     ZeroMemory(&start, sizeof start);
     start.cb = sizeof start;
-    if (!CreateProcessW(python, command, NULL, NULL, TRUE, 0, NULL, NULL, &start, &child)) {
-        fwprintf(stderr, L"builder: cannot start %ls (error %lu)\n", python, GetLastError());
+    DWORD flags = job ? CREATE_SUSPENDED : 0;
+    if (!CreateProcessW(python, command, NULL, NULL, TRUE, flags, NULL, NULL, &start, &child)) {
+        DWORD err = GetLastError();
+        if (job) CloseHandle(job);
+        fwprintf(stderr, L"builder: cannot start %ls (error %lu)\n", python, err);
         if (argc <= 1) wait_for_a_key();
         return 71;
+    }
+    if (job) {
+        if (!AssignProcessToJobObject(job, child.hProcess)) {
+            fwprintf(stderr, L"builder: warning: AssignProcessToJobObject failed (error %lu); continuing without job isolation\n", GetLastError());
+            CloseHandle(job);
+            job = NULL;
+        }
+        if (ResumeThread(child.hThread) == (DWORD)-1) {
+            DWORD err = GetLastError();
+            TerminateProcess(child.hProcess, 71);
+            if (job) CloseHandle(job);
+            CloseHandle(child.hProcess);
+            CloseHandle(child.hThread);
+            fwprintf(stderr, L"builder: cannot resume %ls (error %lu)\n", python, err);
+            if (argc <= 1) wait_for_a_key();
+            return 71;
+        }
     }
     WaitForSingleObject(child.hProcess, INFINITE);
     DWORD code = 70;
     GetExitCodeProcess(child.hProcess, &code);
+    if (job) CloseHandle(job);           /* sweep any descendants left behind if python.exe was terminated */
     CloseHandle(child.hProcess);
     CloseHandle(child.hThread);
     if (argc <= 1) wait_for_a_key();     /* a double click: keep the usage on the screen */

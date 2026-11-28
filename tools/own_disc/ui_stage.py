@@ -30,7 +30,7 @@ KEY_ADDRESS = '0x83bd4c98'
 OWN = ['build_ui_assets.py', 'ui_fonts.py', 'ui_music.py', 'ui_pictures.py', 'ui_sounds.py', 'xma2_decode.py']
 MUSIC = 'ui/music/launcher-music.wav'
 PARTS = 'fonts,glyphs,art,sounds,music'          # every part: the stage pins every file (build_ui_assets.py's default leaves out music)
-SUPPORT = ['disc_builder.py', 'host_support.py', 'checkout_refusal.py', 'build_shader_pack.py', 'shader_toolchain.py']
+SUPPORT = ['disc_builder.py', 'host_support.py', 'checkout_refusal.py', 'windows_job.py', 'build_shader_pack.py', 'shader_toolchain.py']
 
 
 def files():
